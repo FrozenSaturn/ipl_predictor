@@ -179,3 +179,4 @@ models/*.pkl
 models/*.h5
 
 data/raw/Ball_By_Ball_Match_Data.csv
+db.sqlite3

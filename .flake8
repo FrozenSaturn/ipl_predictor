@@ -1,0 +1,5 @@
+[flake8]
+# Set flake8's max line length to match black's default
+max-line-length = 88
+# Ignore error E203 (whitespace before ':') - common conflict with black style
+extend-ignore = E203

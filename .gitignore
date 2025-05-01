@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Model artifacts
+models/*.joblib
+models/*.pkl
+models/*.h5
+
+data/raw/Ball_By_Ball_Match_Data.csv

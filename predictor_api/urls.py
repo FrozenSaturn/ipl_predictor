@@ -1,11 +1,21 @@
-from django.urls import path
-from . import views  # Import the views module
+# predictor_api/urls.py
 
-app_name = "predictor_api"
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from . import views
 
-# Define type hint for urlpatterns
-urlpatterns: list = [
-    # Map the URL 'predict/' to our PredictionView
-    # .as_view() is used for class-based views like APIView
-    path("predict/", views.PredictionView.as_view(), name="predict"),
+# Create a router and register our viewsets with it.
+router = DefaultRouter()
+router.register(r"teams", views.TeamViewSet, basename="team")
+router.register(r"venues", views.VenueViewSet, basename="venue")
+router.register(r"matches", views.MatchViewSet, basename="match")
+router.register(r"players", views.PlayerViewSet, basename="player")
+
+# The API URLs are now determined automatically by the router.
+urlpatterns = [
+    # Include the router-generated URLs for Teams, Venues, Matches
+    path("", include(router.urls)),
+    # Add the specific path for your PredictionView
+    # Use 'predict/' or your preferred endpoint name
+    path("predict/", views.PredictionView.as_view(), name="predict_match"),
 ]

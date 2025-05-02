@@ -12,9 +12,7 @@ if SRC_DIR not in sys.path:
 
 # --- Configuration Constants ---
 MODEL_DIR: str = "models"
-MODEL_FILENAME: str = (
-    "ipl_winner_pipeline_v1.joblib"  # Must match the saved model filename
-)
+MODEL_FILENAME: str = "ipl_winner_pipeline_gb_v1.joblib"
 MODEL_PATH: str = os.path.join(MODEL_DIR, MODEL_FILENAME)
 
 OLLAMA_API_URL: str = "http://localhost:11434/api/generate"
@@ -182,18 +180,21 @@ def predict_winner(
     try:
         # Construct the prompt dynamically based on input and ML prediction
         prompt = (
-            f"An IPL match features {input_data['team1']} "
-            f"vs {input_data['team2']} "
-            f"at {input_data['venue']} ({input_data['city']}). "
-            f"{input_data['toss_winner']} won the toss"
-            f" and chose to {input_data['toss_decision']}. "
-            f"A machine learning model predicts that"
-            f" {predicted_winner} will win this match. "
-            f"Provide a brief (1-2 sentences) plausible"
-            f" reason why {predicted_winner} might be favored, "
-            f"considering potential factors like general"
-            f" team strength, home advantage, or toss impact. "
-            f"Do not mention the machine learning model in your explanation."
+            f"Match Context:\n"
+            f"- Team 1: {input_data['team1']}\n"
+            f"- Team 2: {input_data['team2']}\n"
+            f"- Venue: {input_data['venue']} ({input_data['city']})\n"
+            f"- Toss: {input_data['toss_winner']} won and chose to {input_data['toss_decision']}.\n"
+            f"- Predicted Winner: {predicted_winner}\n\n"
+            f"Task: Provide exactly one concise (target: 1 sentence, maximum 2 sentences)"
+            f" plausible reason why the predicted winner "
+            f"({predicted_winner}) might be favored in this specific match context."
+            f" Focus *only* on factors directly inferable "
+            f"from the context provided (like potential home advantage at the venue,"
+            f" or impact of the toss decision). "
+            f"Do not speculate broadly on general team strength or past tournaments."
+            f" Be factual based ONLY on the context. "
+            f"Start the explanation directly without preamble like 'One plausible reason is...'."
         )
 
         # Call the LLM function

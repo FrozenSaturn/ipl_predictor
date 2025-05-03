@@ -5,16 +5,18 @@ import os
 from datetime import date  # <-- Added import for date object type check
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from rest_framework import (
     status,
     viewsets,
+    permissions,
 )  # Keep permissions if needed later
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema
 from asgiref.sync import async_to_sync  # Keep this import
 
-from .models import Team, Venue, Match, Player
+from .models import Team, Venue, Match, Player, PlayerMatchPerformance
 from .serializers import (
     TeamSerializer,
     VenueSerializer,
@@ -22,6 +24,7 @@ from .serializers import (
     MatchInputSerializer,
     PredictionOutputSerializer,
     PlayerSerializer,
+    PlayerMatchPerformanceSerializer,
 )
 
 # --- Add src directory to Python path ---
@@ -68,15 +71,48 @@ except Exception as e:
 # (Keep your existing ViewSet definitions for Player, Team, Venue, Match - they are correct)
 
 
+# =============================================================================
+# ViewSet for Player Model Access
+# =============================================================================
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint that allows players to be viewed.
+    Includes an action to get recent performance.
+    """
+
     queryset = Player.objects.all()
-    serializer_class = PlayerSerializer
-    # permission_classes = [permissions.IsAuthenticated] # Uncomment if needed
+    serializer_class = PlayerSerializer  # Default serializer is still PlayerSerializer
+    permission_classes = [permissions.IsAuthenticated]  # Rely on default from settings
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["name"]
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
     ordering = ["name"]
+
+    @action(detail=True, methods=["get"], url_path="recent-performance")
+    def recent_performance(self, request, pk=None):
+        """
+        Returns the performance stats for the player's last 5 matches.
+        """
+        player = self.get_object()  # Gets the Player instance based on pk from URL
+        num_matches = 5  # How many recent matches to fetch
+
+        # Query performance, order by match date descending, limit results
+        recent_performances = PlayerMatchPerformance.objects.filter(
+            player=player
+        ).order_by("-match__date")[
+            :num_matches
+        ]  # Slice for latest N
+
+        if not recent_performances.exists():
+            return Response(
+                {"detail": "No performance data found for this player."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Serialize the performance data
+        serializer = PlayerMatchPerformanceSerializer(recent_performances, many=True)
+        return Response(serializer.data)
 
 
 class TeamViewSet(viewsets.ReadOnlyModelViewSet):

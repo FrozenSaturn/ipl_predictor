@@ -50,4 +50,23 @@ export const predictMatch = async (matchData) => {
   }
 };
 
+export const getPlayerRecentPerformance = async (playerId) => {
+  if (!playerId) {
+    throw new Error("Player ID is required");
+  }
+  try {
+    // Use template literal to insert player ID into the URL
+    const response = await apiClient.get(
+      `/players/${playerId}/recent-performance/`
+    );
+    return response.data; // The API returns a list of performance objects
+  } catch (error) {
+    console.error(
+      `Error fetching recent performance for player ${playerId}:`,
+      error.response?.data || error.message
+    );
+    throw error; // Re-throw to be caught by the component
+  }
+};
+
 export default apiClient; // Export if needed elsewhere

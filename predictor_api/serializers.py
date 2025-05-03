@@ -1,7 +1,7 @@
 # predictor_api/serializers.py
 
 from rest_framework import serializers
-from .models import Team, Venue, Match, Player
+from .models import Team, Venue, Match, Player, PlayerMatchPerformance
 
 # =============================================================================
 # Serializers for Database Models (Teams, Venues, Matches)
@@ -100,3 +100,73 @@ class PredictionOutputSerializer(serializers.Serializer):
     )  # <-- Added source='prediction'
     confidence = serializers.FloatField(read_only=True, allow_null=True)
     explanation = serializers.CharField(read_only=True, allow_null=True)
+
+
+# =============================================================================
+# Serializer for Player Performance Data
+# =============================================================================
+class PlayerMatchPerformanceSerializer(serializers.ModelSerializer):
+    """
+    Serializer for PlayerMatchPerformance model, including calculated fields.
+    """
+
+    # Include related match info for context
+    match_date = serializers.DateField(source="match.date", read_only=True)
+    match_venue = serializers.CharField(source="match.venue.name", read_only=True)
+    # Optionally add opponent? Requires fetching related match object again or different query optimization
+    # opponent = serializers.SerializerMethodField()
+
+    # Calculated fields
+    strike_rate = serializers.SerializerMethodField()
+    economy_rate = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlayerMatchPerformance
+        fields = [
+            # Match Info
+            "match",  # Keep match ID for potential linking
+            "match_date",
+            "match_venue",
+            # Batting
+            "runs_scored",
+            "balls_faced",
+            "fours_hit",
+            "sixes_hit",
+            "dismissal_kind",
+            "strike_rate",
+            # Bowling
+            "balls_bowled",
+            "runs_conceded",
+            "wickets_taken",
+            "dots_bowled",
+            "fours_conceded",
+            "sixes_conceded",
+            "economy_rate",
+            # Add 'id' of the performance record itself if needed
+            # 'id',
+        ]
+        read_only_fields = fields  # Mark all as read-only
+
+    def get_strike_rate(self, obj):
+        if obj.balls_faced > 0:
+            return round((obj.runs_scored / obj.balls_faced) * 100, 2)
+        return None  # Or 0.0? Can decide based on frontend needs
+
+    def get_economy_rate(self, obj):
+        if obj.balls_bowled > 0:
+            # Calculate based on balls bowled for accuracy
+            # Avoid division by zero if somehow 0 balls but runs conceded (shouldn't happen)
+            overs_precise = obj.balls_bowled / 6.0
+            if overs_precise > 0:
+                return round(obj.runs_conceded / overs_precise, 2)
+        return None  # Or indicate infinite/NA based on frontend needs
+
+    # Optional: Method to get opponent team name
+    # def get_opponent(self, obj):
+    #     # Assumes obj.match is available
+    #     requesting_player_team = # Need logic to determine which team the player was on for this match
+    #     if obj.match.team1 == requesting_player_team:
+    #         return obj.match.team2.name
+    #     elif obj.match.team2 == requesting_player_team:
+    #         return obj.match.team1.name
+    #     return "Unknown"

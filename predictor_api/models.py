@@ -159,3 +159,77 @@ class Match(models.Model):
     class Meta:
         ordering = ["-date", "-match_number"]
         verbose_name_plural = "Matches"
+
+
+class PlayerMatchPerformance(models.Model):
+    """
+    Stores aggregated performance statistics for a player in a specific match.
+    Populated by processing ball-by-ball data.
+    """
+
+    # Core relationships
+    player = models.ForeignKey(
+        Player,
+        on_delete=models.CASCADE,
+        related_name="performances",
+        help_text="Link to the player.",
+        db_index=True,
+    )
+    match = models.ForeignKey(
+        Match,
+        on_delete=models.CASCADE,
+        related_name="player_performances",
+        help_text="Link to the match.",
+        db_index=True,
+    )
+
+    # --- Batting Stats ---
+    runs_scored = models.PositiveIntegerField(
+        default=0, help_text="Runs scored by the batsman."
+    )
+    balls_faced = models.PositiveIntegerField(
+        default=0, help_text="Number of balls faced by the batsman."
+    )
+    fours_hit = models.PositiveIntegerField(default=0, help_text="Number of 4s hit.")
+    sixes_hit = models.PositiveIntegerField(default=0, help_text="Number of 6s hit.")
+    dismissal_kind = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="e.g., caught, bowled, lbw, run out, not out.",
+    )
+
+    # --- Bowling Stats ---
+    balls_bowled = models.PositiveIntegerField(
+        default=0, help_text="Total balls bowled by the bowler."
+    )
+    runs_conceded = models.PositiveIntegerField(
+        default=0, help_text="Runs conceded by the bowler."
+    )
+    wickets_taken = models.PositiveIntegerField(
+        default=0, help_text="Wickets taken by the bowler."
+    )
+    dots_bowled = models.PositiveIntegerField(
+        default=0, help_text="Number of dot balls bowled."
+    )
+    fours_conceded = models.PositiveIntegerField(
+        default=0, help_text="Number of 4s conceded by the bowler."
+    )
+    sixes_conceded = models.PositiveIntegerField(
+        default=0, help_text="Number of 6s conceded by the bowler."
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("player", "match")  # Ensure one record per player per match
+        ordering = ["-match__date", "player__name"]  # Default ordering
+        verbose_name = "Player Match Performance"
+        verbose_name_plural = "Player Match Performances"
+
+    def __str__(self):
+        return (
+            f"{self.player.name} in Match {self.match.match_id_source or self.match.id}"
+        )

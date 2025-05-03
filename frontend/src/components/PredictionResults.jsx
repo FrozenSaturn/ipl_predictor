@@ -1,52 +1,72 @@
 // src/components/PredictionResults.jsx
-import React from "react";
-import PropTypes from "prop-types";
-import ConfidenceBar from "./ConfidenceBar"; // Assuming ConfidenceBar is in the same directory
+import React from 'react';
+import PropTypes from 'prop-types';
+import ConfidenceBar from './ConfidenceBar'; // Assuming ConfidenceBar is in the same directory
 
 function PredictionResults({ isLoading, error, result }) {
+  // 1. Handle Loading State
   if (isLoading) {
-    return <p>Loading prediction...</p>;
+    // Display loading message specifically for prediction results
+    return <p>Loading prediction results...</p>;
   }
 
+  // 2. Handle Error State
   if (error) {
-    return <p className="error-message">Error: {error}</p>;
+    // Display error related to fetching prediction
+    return <p className="error-message">Prediction Error: {error}</p>;
   }
 
+  // 3. Handle No Result State (after loading/error checks)
   if (!result) {
-    return null; // Render nothing if there's no result yet (and not loading/error)
+    // Nothing to display yet (initial state or cleared results)
+    return null;
   }
 
-  // Render the results if available
+  // 4. Display Results (if result object exists)
   return (
     <div className="prediction-result">
       <h3>Prediction Result:</h3>
-      <p>
-        Predicted Winner: <strong>{result.predicted_winner}</strong>
-      </p>
 
-      <p style={{ marginBottom: "0px" }}>Confidence:</p>
-      {typeof result.confidence === "number" ? (
+      {/* Display Winner */}
+      <p>Predicted Winner: <strong>{result.predicted_winner || 'N/A'}</strong></p>
+
+      {/* Display Confidence Label and Bar */}
+      <p style={{ marginBottom: '0px' }}>Confidence:</p>
+      {typeof result.confidence === 'number' ? (
         <ConfidenceBar score={result.confidence} />
       ) : (
-        <p>N/A</p>
+        <p>N/A</p> /* Handle case where score is missing/invalid */
       )}
 
-      <p>Explanation:</p>
-      <pre className="explanation-box">{result.explanation}</pre>
+      {/* Display Explanation - Conditionally */}
+      {/* Check if result.explanation is present and not empty */}
+      {result.explanation && result.explanation.trim() !== '' ? (
+        <>
+          <p style={{ marginTop: '15px' }}>Explanation:</p>
+          <pre className="explanation-box">
+            {result.explanation}
+          </pre>
+        </>
+      ) : (
+        // Render this if explanation is null, undefined, or empty string
+        <p style={{ marginTop: '15px', fontStyle: 'italic' }}>
+          No explanation provided.
+        </p>
+      )}
     </div>
   );
 }
 
+// Updated PropTypes to clarify structure (explanation is optional string)
 PredictionResults.propTypes = {
   isLoading: PropTypes.bool.isRequired,
-  error: PropTypes.string, // Error message string, null if no error
+  error: PropTypes.string,
   result: PropTypes.shape({
-    // Object structure of the expected result
     predicted_winner: PropTypes.string,
     confidence_score: PropTypes.number,
-    explanation: PropTypes.string,
+    explanation: PropTypes.string, // Explanation might be missing
     // Add other expected fields if necessary
-  }), // Result can be null initially
+  }),
 };
 
 export default PredictionResults;

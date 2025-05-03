@@ -1,257 +1,359 @@
-/* src/index.css or src/App.css */
-
-/* Basic body styling */
-body {
-  font-family: sans-serif;
+/* Reset and Base Styles */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
   margin: 0;
-  padding: 20px;
-  background-color: #f8f9fa;
-  color: #333;
+  padding: 0;
 }
 
-/* Container for the whole prediction section */
-.prediction-container {
-  max-width: 600px; /* Limit overall width */
-  margin: 20px auto; /* Center on the page */
-  padding: 20px;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+:root {
+  /* Dark Theme Color Palette (Inspired by image) */
+  --bg-primary: #0d0d0f;        /* Very dark background */
+  --bg-secondary: #1a1a1f;      /* Lighter background for boxes */
+  --bg-tertiary: #2a2a30;       /* Background for inputs, nested elements */
+  --bg-accent-user: #2a3a59;   /* User message bubble (subtle blue) */
+
+  --text-primary: #e8e8e8;      /* Primary text (off-white) */
+  --text-secondary: #a0a0a8;    /* Secondary text (grey) */
+  --text-accent: #8a78f3;       /* Accent color (purple/violet from image) */
+  --text-error: #ff6b6b;        /* Error text */
+  --text-placeholder: #6a6a70;  /* Placeholder text */
+
+  --border-color: #3a3a42;      /* Subtle borders */
+  --border-glow: rgba(138, 120, 243, 0.15); /* Subtle glow for borders/focus */
+
+  --accent-primary: #6a5acd;   /* Primary action button (similar to violet) */
+  --accent-secondary: #3ebc8e;  /* Secondary action button (e.g., Send - greenish) */
+
+  /* Spacing & Radius */
+  --spacing-unit: 8px;
+  --border-radius-small: 4px;
+  --border-radius-medium: 8px;
+  --border-radius-large: 16px;  /* Slightly less round than default */
 }
 
-/* Style the form itself */
-.prediction-form {
-  margin-top: 20px;
+/* Apply base dark theme styles */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+               Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow-x: hidden; /* Prevent horizontal scroll */
 }
 
-/* Grid layout for form inputs */
+html, body, #root {
+  height: 100%;
+}
+
+#root {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--spacing-unit); /* Add some padding around the app */
+}
+
+/* Scrollbar Styling (Optional, Webkit) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-secondary);
+}
+
+/* --- Bento Grid Layout --- */
+.bento-layout {
+  display: grid;
+  /* Two columns: adjust ratio, e.g., 40% / 60% */
+  grid-template-columns: 2fr 3fr;
+  grid-template-rows: 1fr; /* Full height */
+  gap: calc(var(--spacing-unit) * 2);
+  padding: calc(var(--spacing-unit) * 2);
+  height: 100%; /* Take full height of #root */
+  width: 100%; /* Take full width available in #root */
+  max-width: 1400px; /* Max width of the whole layout */
+  box-sizing: border-box;
+  background-color: var(--bg-primary); /* Redundant if body has it, but safe */
+}
+
+.bento-box {
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius-large); /* Rounded corners like image */
+  padding: calc(var(--spacing-unit) * 3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Important for child scrolling */
+  border: 1px solid var(--border-color); /* Subtle border */
+  /* Subtle glow effect like image */
+  box-shadow: 0 0 15px 0px var(--border-glow);
+}
+
+/* --- Input Controls Box (Left) --- */
+.input-controls {
+  overflow-y: auto; /* Allow this column to scroll if content overflows */
+}
+
+.input-controls h2 {
+  margin-top: 0;
+  margin-bottom: calc(var(--spacing-unit) * 1.5);
+  color: var(--text-accent);
+  font-size: 1.2em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--spacing-unit);
+}
+
+.control-section {
+  margin-bottom: calc(var(--spacing-unit) * 3);
+}
+.control-section:last-child {
+    margin-bottom: 0;
+}
+
+.bento-divider {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: calc(var(--spacing-unit) * 3) 0;
+}
+
+/* --- Chat Interface Box (Right) --- */
+.chat-interface {
+  /* Flex direction column is default via .bento-box */
+}
+
+.chat-main {
+  flex-grow: 1; /* Message list takes available space */
+  overflow-y: auto; /* Enable scrolling for messages */
+  padding-right: calc(var(--spacing-unit) * 1); /* Space for scrollbar */
+  margin-bottom: var(--spacing-unit);
+}
+
+.chat-footer {
+  flex-shrink: 0;
+  padding-top: var(--spacing-unit);
+  border-top: 1px solid var(--border-color);
+}
+
+/* --- Form & Input Styling --- */
+.prediction-form, .chat-text-input-form {
+    width: 100%;
+}
+
 .form-grid {
   display: grid;
-  grid-template-columns: auto 1fr; /* Label takes auto width, input takes rest */
-  gap: 12px; /* Space between rows and columns */
-  align-items: center; /* Vertically align label and input */
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--spacing-unit) * 1.5);
+  align-items: center;
 }
 
-/* Style form elements */
 .form-grid label {
-  font-weight: bold;
-  text-align: right; /* Align labels to the right */
+  font-weight: 500;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 0.9em;
 }
 
+/* Common Input/Select Styles */
 .form-grid input[type="text"],
 .form-grid input[type="date"],
-.form-grid select {
-  width: 100%; /* Make inputs fill the grid column */
-  padding: 8px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  box-sizing: border-box; /* Include padding and border in width */
-}
-
-/* Style the submit button */
-.prediction-form button {
-  display: block; /* Make button take full width */
+.form-grid select,
+.chat-text-input-form input[type="text"] {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-small);
+  padding: var(--spacing-unit) calc(var(--spacing-unit) * 1.5);
   width: 100%;
-  padding: 10px 15px;
-  margin-top: 20px;
-  background-color: #007bff;
-  color: white;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.form-grid input::placeholder,
+.chat-text-input-form input::placeholder {
+    color: var(--text-placeholder);
+}
+
+/* Focus Styles */
+.form-grid input:focus,
+.form-grid select:focus,
+.chat-text-input-form input:focus {
+  outline: none;
+  border-color: var(--text-accent);
+  box-shadow: 0 0 0 3px var(--border-glow);
+}
+
+/* Disabled Styles */
+.form-grid input:disabled,
+.form-grid select:disabled,
+.chat-text-input-form input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Button Styles */
+button {
+  padding: var(--spacing-unit) calc(var(--spacing-unit) * 2);
   border: none;
-  border-radius: 4px;
-  font-size: 1em;
+  border-radius: var(--border-radius-small);
+  color: white;
+  font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.1s ease;
 }
-
-.prediction-form button:hover {
-  background-color: #0056b3;
+button:hover {
+  filter: brightness(1.1);
 }
-
-.prediction-form button:disabled {
-  background-color: #ccc;
+button:active {
+    transform: scale(0.98);
+}
+button:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+  filter: brightness(0.8);
 }
 
-/* Results section styling */
-.results-section {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
+.prediction-form button[type="submit"] {
+  background-color: var(--accent-primary);
+  width: 100%;
+  margin-top: calc(var(--spacing-unit) * 2);
 }
 
-.error-message {
-  color: #dc3545; /* Red color for errors */
-  background-color: #f8d7da;
-  border: 1px solid #f5c6cb;
-  padding: 10px;
-  border-radius: 4px;
+.chat-text-input-form button {
+  background-color: var(--accent-secondary);
+  flex-shrink: 0;
 }
 
-.prediction-result h3 {
-  margin-bottom: 15px;
-  color: #0056b3;
-}
-
-.prediction-result strong {
-  color: #28a745; /* Green color for winner */
-  font-size: 1.1em;
-}
-
-.explanation-box {
-  white-space: pre-wrap; /* Preserve whitespace and wrap text */
-  background: #f4f4f4;
-  padding: 15px;
-  border-radius: 4px;
-  border: 1px solid #ddd;
-  font-family: monospace; /* Use monospace for potentially formatted LLM output */
-  margin-top: 10px;
-  max-height: 200px; /* Limit height */
-  overflow-y: auto; /* Add scrollbar if needed */
-}
-
-/* --- Responsive Adjustments --- */
-
-/* On smaller screens (e.g., less than 500px wide), stack the grid */
-@media (max-width: 500px) {
-  .form-grid {
-    grid-template-columns: 1fr; /* Stack label and input */
-    gap: 5px; /* Reduce gap */
-  }
-
-  .form-grid label {
-    text-align: left; /* Align labels left */
-    margin-bottom: 2px; /* Add small space below label */
-  }
-
-  .prediction-container {
-    margin: 10px;
-    padding: 15px;
-  }
-}
-
-.confidence-display {
+/* --- Chat Message Styling --- */
+.message-list {
   display: flex;
-  align-items: center;
-  gap: 10px; /* Space between text and bar */
-  margin-top: 5px; /* Space above the display */
-  margin-bottom: 10px; /* Space below the display */
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 1.5);
 }
 
-.confidence-score-text {
-  font-weight: bold;
-  min-width: 50px; /* Ensure consistent width for text */
-  text-align: right;
+.message-bubble {
+  padding: calc(var(--spacing-unit) * 1.2) calc(var(--spacing-unit) * 1.8);
+  border-radius: var(--border-radius-large);
+  max-width: 80%; /* Max bubble width */
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+.message-bubble p { margin: 0 0 calc(var(--spacing-unit) * 0.5) 0; }
+.message-bubble p:last-child { margin-bottom: 0; }
+.message-bubble strong { font-weight: 600; }
+
+.user-bubble {
+  background-color: var(--bg-accent-user);
+  color: var(--text-primary);
+  border-bottom-right-radius: var(--border-radius-small);
+  align-self: flex-end;
+  margin-left: auto;
 }
 
-/* The background track of the bar */
-.confidence-bar-track {
-  flex-grow: 1; /* Allow the bar to take remaining space */
-  height: 12px;
-  background-color: #e9ecef; /* Light grey background */
-  border-radius: 6px;
-  overflow: hidden; /* Ensure inner bar respects border radius */
-  border: 1px solid #ced4da;
+.bot-bubble {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary); /* Slightly muted bot text */
+  border-bottom-left-radius: var(--border-radius-small);
+  align-self: flex-start;
+  margin-right: auto;
 }
-
-/* The filled part of the bar */
-.confidence-bar-fill {
-  height: 100%;
-  /* Background color is set dynamically via inline style */
-  border-radius: 6px; /* Match track radius */
-  transition: width 0.5s ease-out, background-color 0.5s ease; /* Smooth transition */
+.bot-bubble strong { /* Make bot highlights stand out */
+    color: var(--text-primary);
 }
-
-/* Adjust layout slightly on smaller screens if needed */
-@media (max-width: 500px) {
-  .confidence-display {
-    flex-wrap: wrap; /* Allow wrapping if space is tight */
-    gap: 5px;
-  }
-  .confidence-bar-track {
-    width: 100%; /* Make track full width below text */
-  }
-  .confidence-score-text {
-    min-width: auto;
-    text-align: left;
-    margin-bottom: 3px;
-  }
+.bot-bubble .error-text { color: var(--text-error); font-weight: 500; }
+.bot-bubble .chat-explanation {
+  background-color: var(--bg-secondary); /* Nested background */
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-small);
+  padding: var(--spacing-unit);
+  margin-top: var(--spacing-unit);
+  font-size: 0.85em;
+  max-height: 150px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
 }
+/* Loading dots */
+.loading-dots span { animation: blink 1.4s infinite both; font-size: 1.5em; font-weight: bold; color: var(--text-secondary); }
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
+
+/* --- Player Performance Styling --- */
 .player-performance-container {
-  margin-top: 40px;
-  padding: 20px;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  background-color: transparent !important; /* Override any previous bg */
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
-
-.player-performance-container h2 {
-  margin-top: 0;
-  margin-bottom: 20px;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 10px;
+.player-performance-container h2 { /* Style similarly to prediction H2 */ }
+.player-selection { display: flex; gap: var(--spacing-unit); align-items: center; flex-wrap: wrap; margin-bottom: var(--spacing-unit); }
+.player-selection label { color: var(--text-secondary); font-size: 0.9em; margin-right: var(--spacing-unit); }
+.player-selection select {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-small);
+    padding: calc(var(--spacing-unit)*0.8) var(--spacing-unit); /* Slightly smaller padding */
+    flex-grow: 1; /* Allow select to grow */
 }
-
-.player-selection {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap; /* Allow wrapping on smaller screens */
-  margin-bottom: 20px;
+.player-selection select:focus { /* Use same focus styles */
+    outline: none;
+    border-color: var(--text-accent);
+    box-shadow: 0 0 0 3px var(--border-glow);
 }
+.id-note { font-size: 0.8em; color: var(--text-secondary); margin-left: var(--spacing-unit); }
+.id-note a { color: var(--text-accent); text-decoration: none; }
+.id-note a:hover { text-decoration: underline; }
 
-.player-selection label {
-  font-weight: bold;
-}
+.performance-display { margin-top: var(--spacing-unit); }
+.chart-container { margin-bottom: calc(var(--spacing-unit)*2); padding-bottom: var(--spacing-unit); border-bottom: 1px dashed var(--border-color); }
+.chart-container:last-child { border-bottom: none; }
+/* Remember to set Chart.js text colors via options in JS */
 
-.player-selection input[type="number"] {
-  padding: 8px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  width: 100px; /* Adjust width as needed */
-}
 
-.player-selection button {
-  padding: 8px 15px;
-  background-color: #6c757d; /* Secondary color */
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
+/* --- Responsiveness --- */
+@media (max-width: 900px) { /* Wider breakpoint for stacking */
+  .bento-layout {
+    grid-template-columns: 1fr; /* Stack columns */
+    height: auto; /* Allow height to adjust */
+    padding: var(--spacing-unit);
+    gap: var(--spacing-unit);
+  }
 
-.player-selection button:hover {
-  background-color: #5a6268;
-}
+  .bento-box {
+    padding: calc(var(--spacing-unit) * 2); /* Adjust padding */
+  }
 
-.player-selection button:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-}
+  /* Give chat a min-height on mobile */
+  .chat-interface {
+      min-height: 50vh;
+      /* Ensure internal flex layout still works */
+      display: flex;
+      flex-direction: column;
+  }
+  .input-controls {
+      order: 1; /* Optionally move controls below chat on mobile */
+  }
+   .chat-interface {
+      order: 0;
+  }
 
-.id-note {
-  font-size: 0.8em;
-  color: #666;
-  margin-left: 10px;
-}
-
-.id-note a {
-  color: #0056b3;
-}
-
-.performance-display {
-  margin-top: 20px;
-  min-height: 100px; /* Ensure space even when empty */
-}
-
-.performance-display h3 {
-  margin-bottom: 15px;
-}
-
-/* Add styles for charts later */
-.chart-container {
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 1px dashed #eee;
+   /* Adjust form grid for smaller screens */
+    .form-grid {
+        grid-template-columns: 1fr;
+        gap: calc(var(--spacing-unit)*0.5);
+    }
+    .form-grid label {
+        text-align: left;
+        margin-bottom: calc(var(--spacing-unit)*0.5);
+    }
 }

@@ -69,4 +69,23 @@ export const getPlayerRecentPerformance = async (playerId) => {
   }
 };
 
+export const getPlayers = async (queryParams = '') => {
+  const queryString = queryParams && typeof queryParams === 'string' ? (queryParams.startsWith('?') ? queryParams : `?${queryParams}`) : '';
+  const url = `/players/${queryString}`;
+
+  console.log("api.js: getPlayers requesting URL:", url);
+
+  try {
+    const response = await apiClient.get(url);
+    return response.data;
+  } catch (error) {
+    // Log specific error for this function
+    console.error(`Error fetching players with url '${url}':`, error.response?.data || error.message);
+    throw error;
+  }
+};
+
+
+
+
 export default apiClient; // Export if needed elsewhere

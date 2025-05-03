@@ -86,6 +86,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["name"]
     search_fields = ["name"]
+    pagination_class = None
     ordering_fields = ["name", "created_at"]
     ordering = ["name"]
 

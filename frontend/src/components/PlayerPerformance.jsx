@@ -1,6 +1,6 @@
 // src/components/PlayerPerformance.jsx
-import React, { useState, useMemo } from "react";
-import { getPlayerRecentPerformance } from "../services/api";
+import React, { useState, useMemo, useEffect } from 'react';
+import { getPlayerRecentPerformance, getPlayers } from '../services/api';
 
 // --- Chart.js Imports ---
 import {
@@ -14,8 +14,8 @@ import {
   Tooltip,
   Legend,
   Filler,
-} from "chart.js";
-import { Bar, Line } from "react-chartjs-2";
+} from 'chart.js';
+import { Bar, Line } from 'react-chartjs-2';
 
 // --- Register Chart.js components (Required) ---
 ChartJS.register(
@@ -31,290 +31,219 @@ ChartJS.register(
 );
 
 function PlayerPerformance() {
-  const [playerId, setPlayerId] = useState("");
+  const [selectedPlayerId, setSelectedPlayerId] = useState('');
+  const [playerList, setPlayerList] = useState([]);
+  const [isListLoading, setIsListLoading] = useState(false);
+  const [listError, setListError] = useState(null);
   const [performanceData, setPerformanceData] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [isPerfLoading, setIsPerfLoading] = useState(false);
+  const [perfError, setPerfError] = useState(null);
 
-  const handleFetchPerformance = async () => {
-    if (!playerId) {
-      setError("Please enter a Player ID.");
+  // Fetch Player List on Component Mount
+  useEffect(() => {
+    const fetchPlayers = async () => {
+      setIsListLoading(true);
+      setListError(null);
+      try {
+        // 1. Get the raw response data object from the API
+        const responseData = await getPlayers();
+
+        // 2. Extract the actual array of players
+        let playerArray = [];
+        if (responseData && Array.isArray(responseData.results)) {
+          // Common case: Paginated response with a 'results' key
+          playerArray = responseData.results;
+          // Optional: Log if pagination is active (we're only getting the first page here)
+          if (responseData.next) {
+            console.warn("Player list is paginated, only fetching first page for dropdown.");
+          }
+        } else if (Array.isArray(responseData)) {
+          // Less common: API directly returned an array
+           playerArray = responseData;
+        } else {
+          // Handle unexpected structure
+          console.error("Unexpected player list data structure:", responseData);
+          throw new Error("Invalid data format received for player list.");
+        }
+
+        // 3. Now sort the extracted array
+        playerArray.sort((a, b) => {
+            // Basic sort, handle potential missing names gracefully
+            const nameA = a.name || '';
+            const nameB = b.name || '';
+            return nameA.localeCompare(nameB);
+        });
+
+        // 4. Set state with the actual array
+        setPlayerList(playerArray);
+
+      } catch (err) {
+        console.error("Failed to load player list:", err);
+        // Keep the specific error message based on where the failure occurred
+        setListError(err.message || "Could not load player list. Check console.");
+      } finally {
+        setIsListLoading(false);
+      }
+    };
+
+    fetchPlayers();
+  }, []); // Empty dependency array means run once on mount
+
+  // Function to fetch performance for a specific player ID
+  const fetchPerformanceForPlayer = async (playerIdToFetch) => {
+    if (!playerIdToFetch) {
+      setPerformanceData(null);
+      setPerfError(null);
       return;
     }
-    setIsLoading(true);
-    setError(null);
+    setIsPerfLoading(true);
+    setPerfError(null);
     setPerformanceData(null);
-    console.log(`Workspaceing performance for Player ID: ${playerId}`);
-
+    console.log(`Workspaceing performance for Player ID: ${playerIdToFetch}`);
     try {
-      const data = await getPlayerRecentPerformance(playerId);
+      const data = await getPlayerRecentPerformance(playerIdToFetch);
       console.log("Received performance data:", data);
       setPerformanceData(data);
       if (data.length === 0) {
-        setError(`No recent performance data found for Player ID: ${playerId}`);
+        setPerfError(`No recent performance data found for Player ID: ${playerIdToFetch}`);
       }
     } catch (err) {
       console.error("Failed to fetch player performance:", err);
-      const backendError = err.response?.data
-        ? JSON.stringify(err.response.data)
-        : err.message;
+      const backendError = err.response?.data ? JSON.stringify(err.response.data) : err.message;
       if (err.response?.status === 404) {
-        setError(
-          `Player with ID ${playerId} not found or has no recent performance.`
-        );
+        setPerfError(`Player with ID ${playerIdToFetch} not found or has no recent performance.`);
       } else {
-        setError(`Failed to fetch performance: ${backendError}`);
+        setPerfError(`Failed to fetch performance: ${backendError}`);
       }
     } finally {
-      setIsLoading(false);
+      setIsPerfLoading(false);
     }
   };
 
-  // Process data for charts using useMemo for efficiency
+  // Handler for Dropdown Change
+  const handlePlayerSelectionChange = (event) => {
+    const newPlayerId = event.target.value;
+    setSelectedPlayerId(newPlayerId);
+    fetchPerformanceForPlayer(newPlayerId);
+  };
+
+  // Process data for charts using useMemo
   const chartData = useMemo(() => {
-    if (!performanceData || performanceData.length === 0) {
-      return null;
-    }
-    const reversedData = [...performanceData].reverse(); // Display oldest match first
-    const labels = reversedData.map((perf) => {
+    if (!performanceData || performanceData.length === 0) return null;
+    const reversedData = [...performanceData].reverse();
+    const labels = reversedData.map(perf => {
       try {
         const date = new Date(perf.match_date);
-        return date.toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-        });
-      } catch (e) {
-        return perf.match_date;
-      }
+        return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      } catch (e) { return perf.match_date; }
     });
-
-    const runsScored = reversedData.map((perf) => perf.runs_scored ?? 0);
-    const strikeRate = reversedData.map((perf) => perf.strike_rate ?? null);
-    const wicketsTaken = reversedData.map((perf) => perf.wickets_taken ?? 0);
-    const economyRate = reversedData.map((perf) => {
+    const runsScored = reversedData.map(perf => perf.runs_scored ?? 0);
+    const strikeRate = reversedData.map(perf => perf.strike_rate ?? null);
+    const wicketsTaken = reversedData.map(perf => perf.wickets_taken ?? 0);
+    const economyRate = reversedData.map(perf => {
       const economy = perf.economy_rate;
-      return typeof economy === "number" && isFinite(economy) ? economy : null;
+      return (typeof economy === 'number' && isFinite(economy)) ? economy : null;
     });
-
-    const didBat =
-      runsScored.some((r) => r > 0) || strikeRate.some((sr) => sr !== null);
-    const didBowl =
-      wicketsTaken.some((w) => w > 0) || economyRate.some((er) => er !== null);
-
-    return {
-      labels,
-      runsScored,
-      strikeRate,
-      wicketsTaken,
-      economyRate,
-      didBat,
-      didBowl,
-    };
+    const didBat = runsScored.some(r => r > 0) || strikeRate.some(sr => sr !== null);
+    const didBowl = wicketsTaken.some(w => w > 0) || economyRate.some(er => er !== null);
+    return { labels, runsScored, strikeRate, wicketsTaken, economyRate, didBat, didBowl };
   }, [performanceData]);
 
   // --- Chart Configuration Options ---
   const commonOptions = {
     responsive: true,
     maintainAspectRatio: true,
-    plugins: {
-      legend: { position: "top" },
-      title: { display: true },
-      tooltip: { mode: "index", intersect: false },
-    },
-    scales: { x: { title: { display: true, text: "Match Date" } } }, // Base X axis
+    plugins: { legend: { position: 'top' }, title: { display: true }, tooltip: { mode: 'index', intersect: false } },
+    scales: { x: { title: { display: true, text: 'Match Date' } } }
   };
-
   const battingChartOptions = {
     ...commonOptions,
-    plugins: {
-      ...commonOptions.plugins,
-      title: {
-        ...commonOptions.plugins.title,
-        text: "Batting Performance (Last 5 Matches)",
-      },
-    },
+    plugins: { ...commonOptions.plugins, title: { ...commonOptions.plugins.title, text: 'Batting Performance (Last 5 Matches)' } },
     scales: {
-      // Multi-axis configuration
       x: { ...commonOptions.scales.x },
-      yRuns: {
-        type: "linear",
-        display: true,
-        position: "left",
-        beginAtZero: true,
-        title: { display: true, text: "Runs Scored" },
-      },
-      yStrikeRate: {
-        type: "linear",
-        display: true,
-        position: "right",
-        beginAtZero: true,
-        title: { display: true, text: "Strike Rate" },
-        grid: { drawOnChartArea: false },
-      },
-    },
+      yRuns: { type: 'linear', display: true, position: 'left', beginAtZero: true, title: { display: true, text: 'Runs Scored' } },
+      yStrikeRate: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Strike Rate' }, grid: { drawOnChartArea: false } }
+    }
   };
-
   const bowlingChartOptions = {
     ...commonOptions,
-    plugins: {
-      ...commonOptions.plugins,
-      title: {
-        ...commonOptions.plugins.title,
-        text: "Bowling Performance (Last 5 Matches)",
-      },
-    },
+    plugins: { ...commonOptions.plugins, title: { ...commonOptions.plugins.title, text: 'Bowling Performance (Last 5 Matches)' } },
     scales: {
-      // Multi-axis configuration
       x: { ...commonOptions.scales.x },
-      yWickets: {
-        type: "linear",
-        display: true,
-        position: "left",
-        beginAtZero: true,
-        title: { display: true, text: "Wickets Taken" },
-        ticks: { stepSize: 1 },
-      },
-      yEconomy: {
-        type: "linear",
-        display: true,
-        position: "right",
-        beginAtZero: true,
-        title: { display: true, text: "Economy Rate" },
-        grid: { drawOnChartArea: false },
-      },
-    },
+      yWickets: { type: 'linear', display: true, position: 'left', beginAtZero: true, title: { display: true, text: 'Wickets Taken' }, ticks: { stepSize: 1 } },
+      yEconomy: { type: 'linear', display: true, position: 'right', beginAtZero: true, title: { display: true, text: 'Economy Rate' }, grid: { drawOnChartArea: false } }
+    }
   };
 
   // --- Chart Data Structures ---
-  const battingChartData = chartData
-    ? {
-        labels: chartData.labels,
-        datasets: [
-          {
-            label: "Runs Scored",
-            data: chartData.runsScored,
-            backgroundColor: "rgba(54, 162, 235, 0.6)",
-            borderColor: "rgba(54, 162, 235, 1)",
-            type: "bar",
-            yAxisID: "yRuns",
-            order: 2,
-          },
-          {
-            label: "Strike Rate",
-            data: chartData.strikeRate,
-            borderColor: "rgb(255, 99, 132)",
-            backgroundColor: "rgba(255, 99, 132, 0.2)",
-            tension: 0.1,
-            type: "line",
-            yAxisID: "yStrikeRate",
-            order: 1,
-            spanGaps: true,
-          },
-        ],
-      }
-    : null;
-
-  const bowlingChartData = chartData
-    ? {
-        labels: chartData.labels,
-        datasets: [
-          {
-            label: "Wickets Taken",
-            data: chartData.wicketsTaken,
-            backgroundColor: "rgba(75, 192, 192, 0.6)",
-            borderColor: "rgba(75, 192, 192, 1)",
-            type: "bar",
-            yAxisID: "yWickets",
-            order: 2,
-          },
-          {
-            label: "Economy Rate",
-            data: chartData.economyRate,
-            borderColor: "rgb(255, 159, 64)",
-            backgroundColor: "rgba(255, 159, 64, 0.2)",
-            tension: 0.1,
-            type: "line",
-            yAxisID: "yEconomy",
-            order: 1,
-            spanGaps: true,
-          },
-        ],
-      }
-    : null;
+  const battingChartData = chartData ? {
+    labels: chartData.labels,
+    datasets: [
+      { label: 'Runs Scored', data: chartData.runsScored, backgroundColor: 'rgba(54, 162, 235, 0.6)', borderColor: 'rgba(54, 162, 235, 1)', type: 'bar', yAxisID: 'yRuns', order: 2 },
+      { label: 'Strike Rate', data: chartData.strikeRate, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1, type: 'line', yAxisID: 'yStrikeRate', order: 1, spanGaps: true }
+    ],
+  } : null;
+  const bowlingChartData = chartData ? {
+    labels: chartData.labels,
+    datasets: [
+      { label: 'Wickets Taken', data: chartData.wicketsTaken, backgroundColor: 'rgba(75, 192, 192, 0.6)', borderColor: 'rgba(75, 192, 192, 1)', type: 'bar', yAxisID: 'yWickets', order: 2 },
+      { label: 'Economy Rate', data: chartData.economyRate, borderColor: 'rgb(255, 159, 64)', backgroundColor: 'rgba(255, 159, 64, 0.2)', tension: 0.1, type: 'line', yAxisID: 'yEconomy', order: 1, spanGaps: true }
+    ],
+  } : null;
 
   return (
     <div className="player-performance-container">
       <h2>Player Recent Performance (Last 5 Matches)</h2>
 
       <div className="player-selection">
-        <label htmlFor="playerIdInput">Enter Player ID:</label>
-        <input
-          type="number"
-          id="playerIdInput"
-          value={playerId}
-          onChange={(e) => setPlayerId(e.target.value)}
-          placeholder="e.g., 123"
-        />
-        <button onClick={handleFetchPerformance} disabled={isLoading}>
-          {isLoading ? "Loading..." : "Get Performance"}
-        </button>
-        <p className="id-note">
-          (Note: Find Player IDs via the{" "}
-          <a
-            href="/api/schema/swagger-ui/#/players/players_list"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Players API
-          </a>
-          )
-        </p>
+        <label htmlFor="playerSelect">Select Player:</label>
+        <select
+          id="playerSelect"
+          value={selectedPlayerId}
+          onChange={handlePlayerSelectionChange}
+          disabled={isListLoading}
+        >
+          {isListLoading && <option value="">Loading players...</option>}
+          {listError && <option value="">Error loading players</option>}
+          {!isListLoading && !listError && (
+            <option value="">-- Select a Player --</option>
+          )}
+          {!isListLoading && !listError && playerList.map((player) => (
+            <option key={player.id} value={player.id}>
+              {player.name}
+            </option>
+          ))}
+        </select>
+        {listError && <p className="error-message" style={{marginLeft: '10px'}}>{listError}</p>}
       </div>
 
       <div className="performance-display">
-        {isLoading && <p>Loading performance data...</p>}
-        {error && <p className="error-message">Error: {error}</p>}
+        {isPerfLoading && <p>Loading performance data...</p>}
+        {perfError && <p className="error-message">Error: {perfError}</p>}
 
         {/* Render Charts */}
-        {chartData && (
+        {!isPerfLoading && !perfError && chartData && (
           <div>
-            {/* Keep the H3 or remove if chart titles are sufficient */}
-            {/* <h3>Performance Trend for Player ID: {playerId}</h3> */}
-
             {chartData.didBat && battingChartData && (
               <div className="chart-container">
-                {/* Using Bar type allows mixed chart defined in datasets */}
                 <Bar data={battingChartData} options={battingChartOptions} />
               </div>
             )}
-            {!isLoading && !error && chartData && !chartData.didBat && (
-              <p>No recent batting data available for Player ID {playerId}.</p>
-            )}
+            {!isPerfLoading && !perfError && chartData && !chartData.didBat && selectedPlayerId && <p>No recent batting data available for the selected player.</p>}
 
             {chartData.didBowl && bowlingChartData && (
               <div className="chart-container">
-                {/* Using Line type allows mixed chart defined in datasets */}
-                <Line data={bowlingChartData} options={bowlingChartOptions} />
+                 <Line data={bowlingChartData} options={bowlingChartOptions} />
               </div>
             )}
-            {!isLoading && !error && chartData && !chartData.didBowl && (
-              <p>No recent bowling data available for Player ID {playerId}.</p>
-            )}
+             {!isPerfLoading && !perfError && chartData && !chartData.didBowl && selectedPlayerId && <p>No recent bowling data available for the selected player.</p>}
           </div>
         )}
+
         {/* Initial message */}
-        {!isLoading && !error && !performanceData && (
-          <p>
-            Enter a Player ID and click "Get Performance" to see recent trends.
-          </p>
+        {!isPerfLoading && !perfError && !performanceData && !selectedPlayerId && (
+             <p>Select a player from the dropdown to see recent trends.</p>
         )}
-        {/* Message if data fetched but was empty list */}
-        {!isLoading &&
-          !error &&
-          performanceData &&
-          performanceData.length === 0 && (
-            <p>No recent performance data found for Player ID {playerId}.</p>
-          )}
       </div>
     </div>
   );

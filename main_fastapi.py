@@ -60,6 +60,7 @@ app = FastAPI(
 # --- Define Data Models (using Pydantic) ---
 # Input model: Defines the structure and types expected in the request body
 # Includes example values for documentation clarity
+# --- Define Data Models ---
 class MatchInput(BaseModel):
     team1: str = Field(..., example="Chennai Super Kings")
     team2: str = Field(..., example="Rajasthan Royals")
@@ -71,11 +72,15 @@ class MatchInput(BaseModel):
     )
     venue: str = Field(..., example="MA Chidambaram Stadium")
     city: str = Field(..., example="Chennai")
+    match_date: str = Field(
+        ..., example="2024-05-10", description="Date of the match (YYYY-MM-DD)"
+    )  # <-- ADDED FIELD
 
 
 # Output model: Defines the structure of the response
 class PredictionOutput(BaseModel):
     predicted_winner: str
+    confidence: Optional[float] = Field(None, example=0.75)
     explanation: Optional[str] = Field(
         None,
         example="Mumbai Indians might be favored due to their strong batting lineup.",
@@ -102,28 +107,27 @@ async def post_predict_winner(match_input: MatchInput):
 
     try:
         # Call the updated prediction function which returns a dictionary
-        prediction_result: Dict[str, Optional[str]] = predict_winner(
-            input_data=input_dict
-        )
+        prediction_result = await predict_winner(input_data=input_dict)
 
-        winner: Optional[str] = prediction_result.get("prediction")
-        explanation: Optional[str] = prediction_result.get("explanation")
+        # winner: Optional[str] = prediction_result.get("prediction")
+        # explanation: Optional[str] = prediction_result.get("explanation")
 
-        if winner is None:  # Check if ML prediction itself failed within predict_winner
-            print("ERROR: Prediction function failed to return a winner.")
-            raise HTTPException(
-                status_code=500,
-                detail="Prediction failed: Model did not return a winner.",
-            )
+        # if winner is None:  # Check if ML prediction itself failed within predict_winner
+        #     print("ERROR: Prediction function failed to return a winner.")
+        #     raise HTTPException(
+        #         status_code=500,
+        #         detail="Prediction failed: Model did not return a winner.",
+        #     )
 
-        print(
-            f"Prediction successful: Winner='{winner}',"
-            f"Explanation='{explanation if explanation else 'N/A'}'"
-        )
+        # print(
+        #     f"Prediction successful: Winner='{winner}',"
+        #     f"Explanation='{explanation if explanation else 'N/A'}'"
+        # )
 
         return PredictionOutput(
-            predicted_winner=winner,
-            explanation=explanation,  # Pass the explanation (can be None)
+            predicted_winner=prediction_result.get("prediction"),
+            confidence=prediction_result.get("confidence"),
+            explanation=prediction_result.get("explanation"),
         )
 
     except FileNotFoundError:

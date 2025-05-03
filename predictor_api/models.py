@@ -2,7 +2,7 @@
 
 from django.db import models
 
-# from django.utils import timezone  # Good practice for datetime fields
+# from django.utils import timezone # Not currently used, keep commented
 
 
 class Team(models.Model):
@@ -18,34 +18,22 @@ class Team(models.Model):
         null=True,
         help_text="Common abbreviation (e.g., CSK, MI)",
     )
-    # Add other relevant team fields if needed, e.g., home_ground, logo_url
 
     def __str__(self):
         return self.name
 
     class Meta:
-        ordering = ["name"]  # Keep teams alphabetically sorted by default
+        ordering = ["name"]
 
 
 class Player(models.Model):
     """
     Represents an individual player identified uniquely by name.
-    We assume player names are unique across the dataset for simplicity initially.
     """
 
-    # Using name as the primary way to identify players from the CSVs
     name = models.CharField(
         max_length=200, unique=True, help_text="Player's full name (must be unique)"
     )
-    # You could add more fields later if data is available:
-    # role = models.CharField(
-    # max_length=50, blank=True, null=True, help_text="e.g.,
-    # Batsman, Bowler, All-rounder"
-    # )
-    # date_of_birth = models.DateField(blank=True, null=True)
-    # nationality = models.CharField(max_length=100, blank=True, null=True)
-
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -64,9 +52,7 @@ class Venue(models.Model):
 
     name = models.CharField(max_length=200, unique=True)
     city = models.CharField(max_length=100)
-    country = models.CharField(
-        max_length=100, default="India"
-    )  # Assuming IPL context primarily
+    country = models.CharField(max_length=100, default="India")
 
     def __str__(self):
         return f"{self.name}, {self.city}"
@@ -77,19 +63,20 @@ class Venue(models.Model):
 
 class Match(models.Model):
     """
-    Represents a single IPL match, linking teams, venue, and results.
+    Represents a single IPL match, linking teams, venue, results,
+    and pre-calculated features used for prediction.
     """
 
+    # Core Match Info
     match_id_source = models.IntegerField(
         unique=True,
-        help_text="Unique ID from the source data (e.g., Match_Info.csv ID)",
-    )  # Important for linking back
+        help_text="Unique ID from the source data (e.g., Match_Info.csv match_number)",  # Updated help text
+    )
     season = models.IntegerField(help_text="IPL Season year (e.g., 2023)")
     date = models.DateField(help_text="Date the match was played")
     match_number = models.IntegerField(
         blank=True, null=True, help_text="Match number within the season/tournament"
     )
-
     team1 = models.ForeignKey(
         Team, related_name="home_matches", on_delete=models.CASCADE
     )
@@ -97,7 +84,6 @@ class Match(models.Model):
         Team, related_name="away_matches", on_delete=models.CASCADE
     )
     venue = models.ForeignKey(Venue, on_delete=models.CASCADE)
-
     toss_winner = models.ForeignKey(
         Team, related_name="toss_wins", on_delete=models.SET_NULL, null=True, blank=True
     )
@@ -107,7 +93,6 @@ class Match(models.Model):
         null=True,
         blank=True,
     )
-
     winner = models.ForeignKey(
         Team,
         related_name="match_wins",
@@ -125,9 +110,44 @@ class Match(models.Model):
         null=True, blank=True, help_text="Margin of victory (runs or wickets)"
     )
 
-    # Fields from Ball_By_Ball can be aggregated or linked if needed later,
-    # but start with Match_Info basics.
-    # Consider adding umpire names, player of the match etc. if required.
+    # --- Pre-calculated Engineered Features ---
+    # These will be calculated and populated by a management command based on historical data *before* this match occurred.
+    team1_win_pct = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Team 1's historical overall win % before this match",
+    )
+    team2_win_pct = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Team 2's historical overall win % before this match",
+    )
+    team1_h2h_win_pct = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Team 1's historical H2H win % against Team 2 before this match",
+    )
+    team1_prev_score = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Team 1's score in their immediately previous match",
+    )
+    team1_prev_wkts = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Team 1's wickets lost in their immediately previous match",
+    )
+    team2_prev_score = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Team 2's score in their immediately previous match",
+    )
+    team2_prev_wkts = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Team 2's wickets lost in their immediately previous match",
+    )
+    # --- Add more feature fields here as they are developed ---
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -137,5 +157,5 @@ class Match(models.Model):
         return f"{self.team1} vs {self.team2} ({self.date})"
 
     class Meta:
-        ordering = ["-date", "-match_number"]  # Show most recent matches first
-        verbose_name_plural = "Matches"  # Correct pluralization in Django admin
+        ordering = ["-date", "-match_number"]
+        verbose_name_plural = "Matches"

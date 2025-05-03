@@ -73,6 +73,7 @@ class MatchInputSerializer(serializers.Serializer):
     city = serializers.CharField(max_length=100)
     toss_winner = serializers.CharField(max_length=100)
     toss_decision = serializers.ChoiceField(choices=["bat", "field"])
+    match_date = serializers.DateField(input_formats=["%Y-%m-%d"], required=True)
     # Add any other fields required by your ML model/predictor function
     # e.g., season = serializers.IntegerField(required=False)
 
@@ -94,12 +95,8 @@ class MatchInputSerializer(serializers.Serializer):
 
 
 class PredictionOutputSerializer(serializers.Serializer):
-    """
-    Formats the output data returned by the prediction endpoint.
-    Adjust fields based on what your 'predict_winner' function returns.
-    """
-
-    prediction = serializers.CharField(max_length=100)
-    explanation = serializers.CharField()
-    # Add other fields returned by your predictor function
-    # e.g., confidence_score = serializers.FloatField(required=False)
+    predicted_winner = serializers.CharField(
+        source="prediction", read_only=True, allow_null=True
+    )  # <-- Added source='prediction'
+    confidence = serializers.FloatField(read_only=True, allow_null=True)
+    explanation = serializers.CharField(read_only=True, allow_null=True)

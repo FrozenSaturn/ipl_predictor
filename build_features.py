@@ -1,56 +1,71 @@
 # build_features.py
 
-import pandas as pd
 import os
+import django
 import sys
+import pandas as pd
 from collections import defaultdict
 from datetime import date
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Set, Any
+import numpy as np
+import logging
 
 # --- Django Environment Setup ---
-print("Setting up Django environment...")
-sys.path.append(os.getcwd())
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ipl_django_project.settings")
-try:
-    import django
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
+logger.info("Setting up Django environment...")
+# Assumes build_features.py is in a subdirectory of the project root (e.g., scripts/ or src/ipl_predictor/features/)
+# Adjust path depth ('..') if necessary to reach the directory containing manage.py
+# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) # Example: If script is in scripts/
+# Or uncomment and set absolute path:
+project_root = "/Users/aryabhattacharjee/Desktop/Major Projects/ipl-predictor-project/"
+
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+# Replace 'ipl_django_project.settings' if your settings file is elsewhere
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ipl_django_project.settings")
+
+try:
     django.setup()
-    print("Django environment setup successfully.")
-    # Import all necessary models and query tools
+    logger.info("Django environment setup successfully.")
     from predictor_api.models import Match, Team, PlayerMatchPerformance
     from django.db.models import Q, Sum
 
-    # from django.db.models.functions import Cast  # For safe division
-
     DJANGO_LOADED = True
 except Exception as e:
-    print(f"ERROR: Failed to setup Django environment: {e}")
+    logger.error(f"Failed to setup Django environment: {e}", exc_info=True)
     sys.exit("Exiting: Cannot proceed without Django environment.")
 # --- End Django Setup ---
 
 # --- Configuration ---
-RAW_DATA_DIR: str = os.path.join(os.getcwd(), "data", "raw")
-PROCESSED_DATA_DIR: str = os.path.join(os.getcwd(), "data", "processed")
+# Assumes data directories are relative to the project root
+BASE_DIR = project_root  # Use project root determined above
+RAW_DATA_DIR: str = os.path.join(BASE_DIR, "data", "raw")
+PROCESSED_DATA_DIR: str = os.path.join(BASE_DIR, "data", "processed")
 MATCH_INFO_FILE: str = "Match_Info.csv"
-OUTPUT_FEATURE_FILE: str = "features.csv"  # Final output filename
+# Saving new features to a different file to avoid overwriting old ones immediately
+OUTPUT_FEATURE_FILE: str = "features_v2_with_rolling.csv"
 
-N_RECENT_MATCHES_FORM: int = (
-    5  # Number of recent matches to consider for player form (used conceptually)
-)
+NUM_RECENT_MATCHES = 5  # Window for rolling stats
 
-# Default values
+# Default values for filling NaNs or handling initial matches
 DEFAULT_WIN_PCT = 0.0
 DEFAULT_H2H_WIN_PCT = 0.5
-DEFAULT_SCORE = 150
-DEFAULT_WKTS = 5
-DEFAULT_BATTING_SR = 130.0
-DEFAULT_BOWLING_ECON = 8.5
+DEFAULT_BATTING_SR = 125.0  # Adjusted default
+DEFAULT_BOWLING_ECON = 8.50  # Adjusted default
+DEFAULT_AVG_RUNS = 25.0
+DEFAULT_AVG_WICKETS = 1.0
 
-# Team Name Normalization
+# Team Name Normalization (Use the same mapping as in data loading)
 TEAM_NAME_MAPPING: dict[str, str] = {
     "Kings XI Punjab": "Punjab Kings",
     "Delhi Daredevils": "Delhi Capitals",
     "Rising Pune Supergiant": "Rising Pune Supergiants",
+    # Ensure this includes ALL necessary mappings used during data loading
     "Royal Challengers Bangalore": "Royal Challengers Bengaluru",
 }
 os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
@@ -59,108 +74,132 @@ os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 
 def normalize_team_names(series: pd.Series) -> pd.Series:
     """Applies TEAM_NAME_MAPPING to a pandas Series."""
-    original_dtype = series.dtype
-    return (
-        series.astype(str)
-        .replace(TEAM_NAME_MAPPING)
-        .astype(original_dtype, errors="ignore")
+    if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
+        # Fill NA before replacing
+        return series.fillna("Unknown").replace(TEAM_NAME_MAPPING)
+    return series
+
+
+# --- Helper Functions for Rolling Stats ---
+
+
+def get_last_played_players(team_id: int, current_date: date) -> Set[int]:
+    """Identifies player IDs from the team's most recent match before current_date."""
+    previous_match = (
+        Match.objects.filter(
+            Q(team1_id=team_id) | Q(team2_id=team_id), date__lt=current_date
+        )
+        .order_by("-date", "-match_number")
+        .first()
+    )  # Added match_number for tie-breaking on date
+
+    if not previous_match:
+        # logger.debug(f"No previous match for team_id {team_id} before {current_date}")
+        return set()
+
+    player_ids = set(
+        PlayerMatchPerformance.objects.filter(match=previous_match)
+        .values_list("player_id", flat=True)
+        .distinct()
+    )  # Added distinct
+
+    # logger.debug(f"Found {len(player_ids)} players for team_id {team_id} from match {previous_match.match_id_source} on {previous_match.date}")
+    return player_ids
+
+
+def get_player_rolling_stats(
+    player_id: int, current_date: date, num_matches: int = NUM_RECENT_MATCHES
+) -> Optional[Dict[str, Any]]:
+    """Calculates rolling stats for a player's last N matches before current_date."""
+    performances = PlayerMatchPerformance.objects.filter(
+        player_id=player_id, match__date__lt=current_date
+    ).order_by("-match__date")[:num_matches]
+
+    count = performances.count()
+    if count == 0:
+        return None
+
+    stats = performances.aggregate(
+        total_runs=Sum("runs_scored", default=0),
+        total_balls_faced=Sum("balls_faced", default=0),
+        total_wickets=Sum("wickets_taken", default=0),
+        total_balls_bowled=Sum("balls_bowled", default=0),
+        total_runs_conceded=Sum("runs_conceded", default=0),
     )
 
+    # Use Decimal for potentially better precision control if needed later
+    total_runs = stats.get("total_runs", 0)
+    total_balls_faced = stats.get("total_balls_faced", 0)
+    total_wickets = stats.get("total_wickets", 0)
+    total_balls_bowled = stats.get("total_balls_bowled", 0)
+    total_runs_conceded = stats.get("total_runs_conceded", 0)
 
-# --- Helper Function to Get Aggregated Team Form ---
-def get_aggregated_team_form(
-    team_obj: Team, prediction_date: date
-) -> Dict[str, Optional[float]]:
-    """Queries PlayerMatchPerformance for recent stats of players in team's last match and aggregates them."""
-    team_form: Dict[str, Optional[float]] = {
-        "avg_recent_sr": None,
-        "avg_recent_econ": None,
+    # Calculate averages
+    avg_runs = total_runs / count
+    avg_wickets = total_wickets / count
+
+    # Calculate aggregate rates safely
+    strike_rate = (
+        (total_runs * 100.0 / total_balls_faced) if total_balls_faced > 0 else None
+    )
+    economy_rate = (
+        (total_runs_conceded * 6.0 / total_balls_bowled)
+        if total_balls_bowled > 0
+        else None
+    )
+
+    return {
+        "avg_runs": avg_runs,
+        "strike_rate": strike_rate,
+        "avg_wickets": avg_wickets,
+        "economy_rate": economy_rate,
+        "matches_considered": count,
     }
 
-    if not DJANGO_LOADED:
-        return team_form
 
-    try:
-        # Find the actual Django Match object ID for the team's last match
-        last_match_for_team = (
-            Match.objects.filter(
-                Q(team1=team_obj) | Q(team2=team_obj), date__lt=prediction_date
-            )
-            .order_by("-date", "-match_number")
-            .first()
-        )
-        if not last_match_for_team:
-            # print(f"Debug: No previous match found for {team_obj.name} before {prediction_date}")
-            return team_form  # No history for team
+def aggregate_team_stats(
+    player_stats_list: List[Dict[str, Any]], team_prefix: str
+) -> Dict[str, float]:
+    """Aggregates list of player stats dicts into team-level average features."""
+    team_features = {}
+    num_players_with_stats = len(player_stats_list)
 
-        # Get distinct player IDs who played in that specific last match
-        # Assumes PlayerMatchPerformance correctly links player_id and match_id
-        player_ids_last_match = list(
-            PlayerMatchPerformance.objects.filter(match_id=last_match_for_team.id)
-            .values_list("player_id", flat=True)
-            .distinct()
-        )
+    # Define keys and their default values
+    agg_map = {
+        "avg_runs": DEFAULT_AVG_RUNS,
+        "strike_rate": DEFAULT_BATTING_SR,
+        "avg_wickets": DEFAULT_AVG_WICKETS,
+        "economy_rate": DEFAULT_BOWLING_ECON,
+    }
 
-        if not player_ids_last_match:
-            # print(f"Debug: No players found for {team_obj.name} in match {last_match_for_team.id}")
-            return team_form  # No players found
+    if num_players_with_stats == 0:
+        for key, default_val in agg_map.items():
+            team_features[f"{team_prefix}_{key}_L{NUM_RECENT_MATCHES}"] = default_val
+        return team_features
 
-        # Now, query *all* performances for these specific players *before* the prediction date
-        # Aggregate SR and Econ across these performances
-        # Note: This averages over *all* prior performances of players from the last match,
-        #       not strictly their last N games, but is simpler to query efficiently.
-        recent_performances = PlayerMatchPerformance.objects.filter(
-            player_id__in=player_ids_last_match, match__date__lt=prediction_date
-        )
+    # Calculate means, filtering out None values from individual calcs
+    for key, default_val in agg_map.items():
+        valid_values = [
+            s[key]
+            for s in player_stats_list
+            if s is not None and s.get(key) is not None
+        ]
+        mean_val = np.mean(valid_values) if valid_values else default_val
+        team_features[f"{team_prefix}_{key}_L{NUM_RECENT_MATCHES}"] = float(
+            mean_val
+        )  # Ensure float
 
-        # Aggregate Batting Strike Rate: Sum(Runs) / Sum(Balls Faced) * 100
-        bat_agg = recent_performances.aggregate(
-            total_runs=Sum("runs_scored"), total_balls=Sum("balls_faced")
-        )
-        if (
-            bat_agg.get("total_balls")
-            and bat_agg["total_balls"] > 0
-            and bat_agg.get("total_runs") is not None
-        ):
-            team_form["avg_recent_sr"] = float(
-                (bat_agg["total_runs"] * 100.0) / bat_agg["total_balls"]
-            )
-        # else: print(f"Debug SR calc fail: Runs={bat_agg.get('total_runs')} Balls={bat_agg.get('total_balls')}")
-
-        # Aggregate Bowling Economy: Sum(Runs Conceded) / (Sum(Balls Bowled) / 6)
-        bowl_agg = recent_performances.aggregate(
-            total_runs_conceded=Sum("runs_conceded"),
-            total_balls_bowled=Sum("balls_bowled"),
-        )
-        if (
-            bowl_agg.get("total_balls_bowled")
-            and bowl_agg["total_balls_bowled"] > 0
-            and bowl_agg.get("total_runs_conceded") is not None
-        ):
-            overs = bowl_agg["total_balls_bowled"] / 6.0
-            if overs > 0:
-                team_form["avg_recent_econ"] = float(
-                    bowl_agg["total_runs_conceded"] / overs
-                )
-        # else: print(f"Debug Econ calc fail: RunsC={bowl_agg.get('total_runs_conceded')} BallsB={bowl_agg.get('total_balls_bowled')}")
-
-    except Exception as e_form:
-        print(
-            f"Warning: Error calculating form stats for team {team_obj.name if team_obj else 'N/A'}: {e_form}"
-        )
-
-    # print(f"Debug Form for {team_obj.name}: SR={team_form['avg_recent_sr']}, Econ={team_form['avg_recent_econ']}")
-    return team_form
+    return team_features
 
 
-# --- End Helper Function ---
+# --- End Helper Functions ---
 
 
 def calculate_and_save_features():
     """Loads data, calculates all features chronologically including player form, saves to CSV."""
-    print("Loading base match info...")
+    logger.info("Loading base match info...")
     match_info_path = os.path.join(RAW_DATA_DIR, MATCH_INFO_FILE)
-    try:  # ... (Load Match Info CSV as before) ...
+    try:
         match_cols_needed = [
             "match_number",
             "match_date",
@@ -176,36 +215,38 @@ def calculate_and_save_features():
             match_info_path, usecols=match_cols_needed, parse_dates=["match_date"]
         )
     except Exception as e:
-        print(f"Error loading {MATCH_INFO_FILE}: {e}")
+        logger.error(f"Error loading {MATCH_INFO_FILE}: {e}")
         return
 
-    # Cleaning & Sorting (as before)
     df_matches.dropna(
         subset=["winner", "team1", "team2", "match_date", "match_number"], inplace=True
     )
     df_matches.sort_values(by=["match_date", "match_number"], inplace=True)
     df_matches.reset_index(drop=True, inplace=True)
-    print(f"Loaded and sorted {len(df_matches)} matches.")
-    print("Normalizing team names...")
-    # ... (Normalize names as before) ...
+    logger.info(f"Loaded and sorted {len(df_matches)} matches.")
+
+    logger.info("Normalizing team names...")
     for col in ["team1", "team2", "toss_winner", "winner"]:
         df_matches[col] = normalize_team_names(df_matches[col])
     df_matches["city"] = df_matches["city"].fillna("Unknown")
 
+    # Pre-fetch Team objects for efficiency
+    all_team_names = set(df_matches["team1"]) | set(df_matches["team2"])
+    team_objs = {t.name: t for t in Team.objects.filter(name__in=all_team_names)}
+    logger.info(f"Fetched {len(team_objs)} team objects from DB.")
+
     # --- Feature Calculation Loop ---
-    print("Starting feature calculation loop (Including Player Form)...")
+    logger.info("Starting feature calculation loop (Including Player Form)...")
     team_stats: dict[str, dict[str, int]] = defaultdict(
         lambda: {"wins": 0, "played": 0}
     )
     h2h_stats: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    # No need for prev_match_perf tracker here, we get it from DB fields directly
-
     all_features_list = []
     total_rows = len(df_matches)
 
     for index, row in df_matches.iterrows():
-        if index % 100 == 0:
-            print(f"  Processing features for match {index}/{total_rows}...")
+        if (index + 1) % 100 == 0:
+            logger.info(f"  Processing features for match {index + 1}/{total_rows}...")
 
         match_id_source = int(row["match_number"])
         team1_name = row["team1"]
@@ -218,14 +259,15 @@ def calculate_and_save_features():
             current_features[col] = row[col]
 
         try:
-            # Get Team Objects for DB queries
-            team1_obj = Team.objects.filter(name=team1_name).first()
-            team2_obj = Team.objects.filter(name=team2_name).first()
+            team1_obj = team_objs.get(team1_name)
+            team2_obj = team_objs.get(team2_name)
             if not team1_obj or not team2_obj:
-                raise ValueError("Team object not found in DB")
+                logger.warning(
+                    f"Skipping match {match_id_source}: Team object not found in DB for {team1_name} or {team2_name}"
+                )
+                continue  # Skip row if teams not found
 
-            # --- Calculate Historical Win % (from trackers) ---
-            # ... (Calculate t1_win_pct, t2_win_pct, t1_h2h_win_pct using team_stats/h2h_stats as before) ...
+            # Calculate Historical Win %
             t1_played = team_stats[team1_name]["played"]
             t1_wins = team_stats[team1_name]["wins"]
             t2_played = team_stats[team2_name]["played"]
@@ -236,212 +278,156 @@ def calculate_and_save_features():
             current_features["team2_win_pct"] = (
                 (t2_wins / t2_played) if t2_played > 0 else DEFAULT_WIN_PCT
             )
-            h2h_played = (
-                h2h_stats[team1_name][team2_name] + h2h_stats[team2_name][team1_name]
-            )
-            t1_h2h_wins = h2h_stats[team1_name][team2_name]
+            h2h_played = h2h_stats[team1_name].get(team2_name, 0) + h2h_stats[
+                team2_name
+            ].get(team1_name, 0)
+            t1_h2h_wins = h2h_stats[team1_name].get(team2_name, 0)
             current_features["team1_h2h_win_pct"] = (
                 (t1_h2h_wins / h2h_played) if h2h_played > 0 else DEFAULT_H2H_WIN_PCT
             )
 
-            # --- Calculate Previous Match Performance (Fetch PRE-CALCULATED from DB Match fields) ---
-            # Find last match records from DB
-            last_match_t1 = (
-                Match.objects.filter(
-                    Q(team1=team1_obj) | Q(team2=team1_obj), date__lt=current_date
-                )
-                .order_by("-date", "-match_number")
-                .first()
-            )
-            last_match_t2 = (
-                Match.objects.filter(
-                    Q(team1=team2_obj) | Q(team2=team2_obj), date__lt=current_date
-                )
-                .order_by("-date", "-match_number")
-                .first()
-            )
-            # Assign from DB field or default
-            current_features["team1_prev_score"] = (
-                (
-                    last_match_t1.team1_prev_score
-                    if last_match_t1 and last_match_t1.team1 == team1_obj
-                    else last_match_t1.team2_prev_score
-                )
-                if last_match_t1
-                else DEFAULT_SCORE
-            )
-            current_features["team1_prev_wkts"] = (
-                (
-                    last_match_t1.team1_prev_wkts
-                    if last_match_t1 and last_match_t1.team1 == team1_obj
-                    else last_match_t1.team2_prev_wkts
-                )
-                if last_match_t1
-                else DEFAULT_WKTS
-            )
-            current_features["team2_prev_score"] = (
-                (
-                    last_match_t2.team1_prev_score
-                    if last_match_t2 and last_match_t2.team1 == team2_obj
-                    else last_match_t2.team2_prev_score
-                )
-                if last_match_t2
-                else DEFAULT_SCORE
-            )
-            current_features["team2_prev_wkts"] = (
-                (
-                    last_match_t2.team1_prev_wkts
-                    if last_match_t2 and last_match_t2.team1 == team2_obj
-                    else last_match_t2.team2_prev_wkts
-                )
-                if last_match_t2
-                else DEFAULT_WKTS
-            )
-            # Fill potential None values read from DB with defaults
-            for key in [
-                "team1_prev_score",
-                "team1_prev_wkts",
-                "team2_prev_score",
-                "team2_prev_wkts",
-            ]:
-                if current_features[key] is None:
-                    current_features[key] = (
-                        DEFAULT_SCORE if "score" in key else DEFAULT_WKTS
-                    )
+            # Calculate Recent Player Form
+            team1_players_ids = get_last_played_players(team1_obj.id, current_date)
+            team2_players_ids = get_last_played_players(team2_obj.id, current_date)
 
-            # --- Calculate Recent Player Form (NEW - Call Helper using DB queries) ---
-            team1_form = get_aggregated_team_form(team1_obj, current_date)
-            team2_form = get_aggregated_team_form(team2_obj, current_date)
-            current_features["team1_avg_recent_bat_sr"] = team1_form.get(
-                "avg_recent_sr", DEFAULT_BATTING_SR
-            )
-            current_features["team1_avg_recent_bowl_econ"] = team1_form.get(
-                "avg_recent_econ", DEFAULT_BOWLING_ECON
-            )
-            current_features["team2_avg_recent_bat_sr"] = team2_form.get(
-                "avg_recent_sr", DEFAULT_BATTING_SR
-            )
-            current_features["team2_avg_recent_bowl_econ"] = team2_form.get(
-                "avg_recent_econ", DEFAULT_BOWLING_ECON
-            )
-            # Fill potential Nones with defaults again for safety
-            for key in [
-                "team1_avg_recent_bat_sr",
-                "team1_avg_recent_bowl_econ",
-                "team2_avg_recent_bat_sr",
-                "team2_avg_recent_bowl_econ",
-            ]:
-                if current_features[key] is None:
-                    current_features[key] = (
-                        DEFAULT_BATTING_SR if "sr" in key else DEFAULT_BOWLING_ECON
-                    )
+            team1_rolling_stats = [
+                get_player_rolling_stats(pid, current_date) for pid in team1_players_ids
+            ]
+            team1_rolling_stats = [
+                s for s in team1_rolling_stats if s is not None
+            ]  # Filter out None results
 
-            # --- Store features for this row ---
+            team2_rolling_stats = [
+                get_player_rolling_stats(pid, current_date) for pid in team2_players_ids
+            ]
+            team2_rolling_stats = [
+                s for s in team2_rolling_stats if s is not None
+            ]  # Filter out None results
+
+            # Aggregate Team Form Features
+            current_features.update(aggregate_team_stats(team1_rolling_stats, "team1"))
+            current_features.update(aggregate_team_stats(team2_rolling_stats, "team2"))
+
             all_features_list.append(current_features)
 
-            # --- Update history trackers for NEXT iteration (Win%, H2H% only) ---
+            # Update history trackers for NEXT iteration
             team_stats[team1_name]["played"] += 1
             team_stats[team2_name]["played"] += 1
             if winner_name == team1_name:
                 team_stats[team1_name]["wins"] += 1
-                h2h_stats[team1_name][team2_name] += 1
+                h2h_stats[team1_name][team2_name] = (
+                    h2h_stats[team1_name].get(team2_name, 0) + 1
+                )
             elif winner_name == team2_name:
                 team_stats[team2_name]["wins"] += 1
-                h2h_stats[team2_name][team1_name] += 1
+                h2h_stats[team2_name][team1_name] = (
+                    h2h_stats[team2_name].get(team1_name, 0) + 1
+                )
 
         except Exception as e_row:
-            print(f"ERROR processing row {index} (Match #{match_id_source}): {e_row}")
-            all_features_list.append(
-                {"match_number": match_id_source}
-            )  # Add placeholder
+            logger.error(
+                f"ERROR processing row {index} (Match #{match_id_source}): {e_row}",
+                exc_info=True,
+            )
+            # Optionally add placeholder row or skip
+            # all_features_list.append({"match_number": match_id_source})
 
-    print(f"Finished feature calculation loop for {len(all_features_list)} matches.")
+    logger.info(
+        f"Finished feature calculation loop for {len(all_features_list)} matches."
+    )
 
-    # --- Create Final DataFrame and Save ---
     if not all_features_list:
-        print("ERROR: No features were generated.")
+        logger.error("No features were generated.")
         return
 
     df_final_features = pd.DataFrame(all_features_list)
 
-    # Define final columns order (including target and new form features)
+    # Define final columns order (ensure these match the feature names generated)
     final_cols_order = [
         "match_number",
-        "winner",  # ID and Target
+        "winner",  # Target
         "team1",
         "team2",
         "toss_winner",
         "toss_decision",
         "venue",
-        "city",  # Categorical inputs
+        "city",  # Categorical
         "team1_win_pct",
         "team2_win_pct",
         "team1_h2h_win_pct",  # Historical %
-        "team1_prev_score",
-        "team1_prev_wkts",
-        "team2_prev_score",
-        "team2_prev_wkts",  # Prev Match Basic
-        "team1_avg_recent_bat_sr",
-        "team1_avg_recent_bowl_econ",  # Team Form - Batting
-        "team2_avg_recent_bat_sr",
-        "team2_avg_recent_bowl_econ",  # Team Form - Bowling
+        # New Rolling Form Features (adjust names if changed in helpers)
+        f"team1_avg_runs_L{NUM_RECENT_MATCHES}",
+        f"team1_strike_rate_L{NUM_RECENT_MATCHES}",
+        f"team1_avg_wickets_L{NUM_RECENT_MATCHES}",
+        f"team1_economy_rate_L{NUM_RECENT_MATCHES}",
+        f"team2_avg_runs_L{NUM_RECENT_MATCHES}",
+        f"team2_strike_rate_L{NUM_RECENT_MATCHES}",
+        f"team2_avg_wickets_L{NUM_RECENT_MATCHES}",
+        f"team2_economy_rate_L{NUM_RECENT_MATCHES}",
     ]
-    # Ensure all columns exist, fill missing with defaults if necessary
+
+    # Reorder and select columns, adding missing ones with defaults if necessary
     for col in final_cols_order:
         if col not in df_final_features.columns:
-            print(
-                f"Warning: Column '{col}' was missing after calculation, adding default."
+            logger.warning(
+                f"Column '{col}' was missing after calculation, adding default."
             )
-            # Determine default based on column name pattern
+            # Determine default (crude mapping based on name)
+            default_val = 0.0
             if "win_pct" in col:
-                default = DEFAULT_WIN_PCT if "h2h" not in col else DEFAULT_H2H_WIN_PCT
-            elif "score" in col:
-                default = DEFAULT_SCORE
-            elif "wkts" in col:
-                default = DEFAULT_WKTS
+                default_val = (
+                    DEFAULT_WIN_PCT if "h2h" not in col else DEFAULT_H2H_WIN_PCT
+                )
             elif "sr" in col:
-                default = DEFAULT_BATTING_SR
+                default_val = DEFAULT_BATTING_SR
             elif "econ" in col:
-                default = DEFAULT_BOWLING_ECON
-            else:
-                default = None  # Or appropriate default
-            df_final_features[col] = default
+                default_val = DEFAULT_BOWLING_ECON
+            elif "runs" in col:
+                default_val = DEFAULT_AVG_RUNS
+            elif "wickets" in col:
+                default_val = DEFAULT_AVG_WICKETS
+            df_final_features[col] = default_val
 
-    df_final_features = df_final_features[final_cols_order]  # Select and order
+    df_final_features = df_final_features[final_cols_order]
 
-    # Final check for NaNs and fill with defaults again as safeguard
-    default_map = {
-        "team1_win_pct": DEFAULT_WIN_PCT,
-        "team2_win_pct": DEFAULT_WIN_PCT,
-        "team1_h2h_win_pct": DEFAULT_H2H_WIN_PCT,
-        "team1_prev_score": DEFAULT_SCORE,
-        "team1_prev_wkts": DEFAULT_WKTS,
-        "team2_prev_score": DEFAULT_SCORE,
-        "team2_prev_wkts": DEFAULT_WKTS,
-        "team1_avg_recent_bat_sr": DEFAULT_BATTING_SR,
-        "team1_avg_recent_bowl_econ": DEFAULT_BOWLING_ECON,
-        "team2_avg_recent_bat_sr": DEFAULT_BATTING_SR,
-        "team2_avg_recent_bowl_econ": DEFAULT_BOWLING_ECON,
-    }
-    for col, default in default_map.items():
-        if col in df_final_features.columns:
-            df_final_features[col] = df_final_features[col].fillna(default)
+    # Final check for NaNs and fill with defaults (should mostly be handled by aggregate_team_stats)
+    nan_counts = df_final_features.isnull().sum()
+    cols_with_nan = nan_counts[nan_counts > 0]
+    if not cols_with_nan.empty:
+        logger.warning(
+            f"NaN values found after calculation in columns: {list(cols_with_nan.index)}. Filling with defaults."
+        )
+        # Refined fillna based on type
+        default_map_final = {
+            f"team1_avg_runs_L{NUM_RECENT_MATCHES}": DEFAULT_AVG_RUNS,
+            f"team1_strike_rate_L{NUM_RECENT_MATCHES}": DEFAULT_BATTING_SR,
+            f"team1_avg_wickets_L{NUM_RECENT_MATCHES}": DEFAULT_AVG_WICKETS,
+            f"team1_economy_rate_L{NUM_RECENT_MATCHES}": DEFAULT_BOWLING_ECON,
+            f"team2_avg_runs_L{NUM_RECENT_MATCHES}": DEFAULT_AVG_RUNS,
+            f"team2_strike_rate_L{NUM_RECENT_MATCHES}": DEFAULT_BATTING_SR,
+            f"team2_avg_wickets_L{NUM_RECENT_MATCHES}": DEFAULT_AVG_WICKETS,
+            f"team2_economy_rate_L{NUM_RECENT_MATCHES}": DEFAULT_BOWLING_ECON,
+            "team1_win_pct": DEFAULT_WIN_PCT,
+            "team2_win_pct": DEFAULT_WIN_PCT,
+            "team1_h2h_win_pct": DEFAULT_H2H_WIN_PCT,
+        }
+        df_final_features.fillna(value=default_map_final, inplace=True)
 
     output_path = os.path.join(PROCESSED_DATA_DIR, OUTPUT_FEATURE_FILE)
-    print(
-        f"Saving final features (including player form) to: {output_path} (Shape: {df_final_features.shape})"
+    logger.info(
+        f"Saving final features to: {output_path} (Shape: {df_final_features.shape})"
     )
     try:
         df_final_features.to_csv(output_path, index=False)
-        print("Features saved successfully.")
+        logger.info("Features saved successfully.")
     except Exception as e:
-        print(f"ERROR saving features to CSV: {e}")
+        logger.error(f"ERROR saving features to CSV: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
-    print("Starting Feature Build Process (Step 2 - Adding Player Form)...")
+    logger.info("Starting Feature Build Process (Adding Rolling Player Form)...")
     if DJANGO_LOADED:
         calculate_and_save_features()
     else:
-        print("Exiting: Django environment setup failed.")
-    print("Feature Build Process (Step 2) Finished.")
+        logger.error("Exiting: Django environment setup failed.")
+    logger.info("Feature Build Process Finished.")

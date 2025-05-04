@@ -38,7 +38,7 @@ function ChatTextInput({ onSendMessage, isLoading }) {
         disabled={isLoading} // Disable input if parent is loading
         aria-label="Chat message input" // Accessibility
       />
-      <button type="submit" disabled={isLoading || !inputValue.trim()}>
+      <button className="chat-send-button" type="submit" disabled={isLoading || !inputValue.trim()}>
         Send
       </button>
     </form>

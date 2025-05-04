@@ -84,3 +84,4 @@ uvloop==0.21.0
 virtualenv==20.30.0
 watchfiles==1.0.5
 websockets==15.0.1
+xgboost==3.0.0

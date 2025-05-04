@@ -294,7 +294,11 @@ button:disabled {
   padding: 0 !important;
   margin: 0 !important;
 }
-.player-performance-container h2 { /* Style similarly to prediction H2 */ }
+.chat-send-button{
+  background-color: #6a5acd !important;
+  width: 100%;
+  margin-top: calc(var(--spacing-unit) * 2);
+}
 .player-selection { display: flex; gap: var(--spacing-unit); align-items: center; flex-wrap: wrap; margin-bottom: var(--spacing-unit); }
 .player-selection label { color: var(--text-secondary); font-size: 0.9em; margin-right: var(--spacing-unit); }
 .player-selection select {

@@ -161,12 +161,10 @@ class PlayerMatchPerformanceSerializer(serializers.ModelSerializer):
                 return round(obj.runs_conceded / overs_precise, 2)
         return None  # Or indicate infinite/NA based on frontend needs
 
-    # Optional: Method to get opponent team name
-    # def get_opponent(self, obj):
-    #     # Assumes obj.match is available
-    #     requesting_player_team = # Need logic to determine which team the player was on for this match
-    #     if obj.match.team1 == requesting_player_team:
-    #         return obj.match.team2.name
-    #     elif obj.match.team2 == requesting_player_team:
-    #         return obj.match.team1.name
-    #     return "Unknown"
+
+class ScorePredictionOutputSerializer(serializers.Serializer):
+    """Defines the structure for the score prediction response."""
+
+    predicted_score = serializers.FloatField(read_only=True, allow_null=True)
+    # Include error field to pass back messages from predictor if needed
+    error = serializers.CharField(read_only=True, allow_null=True, required=False)

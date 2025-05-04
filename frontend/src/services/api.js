@@ -77,10 +77,23 @@ export const getPlayers = async (queryParams = '') => {
 
   try {
     const response = await apiClient.get(url);
+    console.log("api.js: getPlayers returning response.data:", JSON.stringify(response.data, null, 2));
     return response.data;
   } catch (error) {
     // Log specific error for this function
     console.error(`Error fetching players with url '${url}':`, error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const predictScore = async (matchData) => {
+  try {
+    // Assuming the Django endpoint is /api/v1/predict_score/
+    const response = await apiClient.post('/predict_score/', matchData);
+    // Adjust response field based on actual API (e.g., predicted_first_innings_score)
+    return response.data; // Example: expects { predicted_score: 175.5 }
+  } catch (error) {
+    console.error("Error fetching score prediction:", error.response?.data || error.message);
     throw error;
   }
 };

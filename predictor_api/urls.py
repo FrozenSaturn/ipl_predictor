@@ -18,4 +18,5 @@ urlpatterns = [
     # Add the specific path for your PredictionView
     # Use 'predict/' or your preferred endpoint name
     path("predict/", views.PredictionView.as_view(), name="predict_match"),
+    path("predict_score/", views.ScorePredictionView.as_view(), name="predict_score"),
 ]

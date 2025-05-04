@@ -27,5 +27,9 @@ repos:
     rev: v1.10.0 # Use the latest stable version
     hooks:
       - id: mypy
+        language: python
+        entry: mypy
+        require_serial: true
+        files: ^src/
         # args: [--strict] # Consider adding --strict for more rigorous type checking later
-        additional_dependencies: [types-requests] # Add types for libraries like requests
+        # additional_dependencies: [types-requests] # Add types for libraries like requests

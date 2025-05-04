@@ -2,42 +2,103 @@
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-import sys
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional  # Added Union
 from contextlib import asynccontextmanager
 
+# --- Add src directory to Python path ---
 SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "src"))
-if SRC_DIR not in sys.path:
-    sys.path.append(SRC_DIR)
 # --- End Path Handling ---
 
 # --- Import predictor functions ---
 try:
-    # Attempt to import after potentially modifying sys.path
-    from ipl_predictor.predictor import predict_winner, load_pipeline
-except ImportError as e:
-    print(
-        "ERROR: Failed to import from 'ipl_predictor'."
-        " Check sys.path and module structure."
+    # Import both predictor functions and their loaders
+    from ipl_predictor.predictor import (
+        predict_winner,
+        load_winner_pipeline_and_encoder,
+        predict_score,
+        load_score_pipeline,  # Added score predictor imports
     )
-    print(f"Current sys.path: {sys.path}")
-    # Exit if essential imports fail, as the app cannot function
-    sys.exit(f"ImportError: {e}")
+
+    PREDICTORS_LOADED = True
+except ImportError as e:
+    print(f"ERROR: Failed to import from 'ipl_predictor': {e}. Check sys.path/module.")
+    PREDICTORS_LOADED = False
+
+    # Define dummy functions if import fails, so app can start but endpoints fail
+    async def predict_winner(*args, **kwargs):
+        return {
+            "prediction": None,
+            "confidence": None,
+            "explanation": "Predictor Unavailable",
+        }
+
+    async def predict_score(*args, **kwargs):
+        return {"predicted_score": None, "error": "Predictor Unavailable"}
+
+    def load_winner_pipeline_and_encoder():
+        raise ImportError("Winner predictor failed to load")
+
+    def load_score_pipeline():
+        raise ImportError("Score predictor failed to load")
+
+
 # --- End Imports ---
 
 
+# --- Define Data Models (Pydantic) ---
+# Input model (used by both endpoints)
+class MatchInput(BaseModel):
+    team1: str = Field(..., example="Chennai Super Kings")
+    team2: str = Field(..., example="Rajasthan Royals")
+    toss_winner: str = Field(..., example="Rajasthan Royals")
+    toss_decision: str = Field(..., example="field", description="'field' or 'bat'")
+    venue: str = Field(..., example="MA Chidambaram Stadium")
+    city: str = Field(..., example="Chennai")
+    match_date: str = Field(..., example="2024-05-10", description="Date (YYYY-MM-DD)")
+
+
+# Output model for Winner Prediction
+class WinnerPredictionOutput(BaseModel):
+    prediction: Optional[str]  # Changed from predicted_winner for consistency
+    confidence: Optional[float] = Field(None, example=0.75)
+    explanation: Optional[str] = Field(None, example="Team X might be favored...")
+
+
+# Output model for Score Prediction (NEW)
+class ScorePredictionOutput(BaseModel):
+    predicted_score: Optional[float] = Field(None, example=185.5)
+    error: Optional[str] = Field(
+        None, example="Feature retrieval failed."
+    )  # Include potential errors
+
+
+# --- End Data Models ---
+
+
+# --- Lifespan Context Manager (Load BOTH models) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Code to run on startup:
-    print("Application startup: Loading ML model pipeline via lifespan...")
+    print("Application startup: Loading ML pipelines via lifespan...")
+    models_loaded_successfully = True
     try:
-        load_pipeline()  # Call the loader function from predictor.py
-        print("ML model pipeline loaded successfully via lifespan.")
-    except FileNotFoundError:
-        print("ERROR (lifespan): Model file not found during startup.")
+        load_winner_pipeline_and_encoder()  # Load winner pipeline + encoder
+        print("Winner pipeline and encoder loaded successfully via lifespan.")
     except Exception as e:
-        print(f"ERROR (lifespan): An unexpected error occurred loading model: {e}")
+        models_loaded_successfully = False
+        print(f"ERROR (lifespan): Failed to load winner pipeline/encoder: {e}")
+    try:
+        load_score_pipeline()  # Load score pipeline
+        print("Score pipeline loaded successfully via lifespan.")
+    except Exception as e:
+        models_loaded_successfully = False
+        print(f"ERROR (lifespan): Failed to load score pipeline: {e}")
+
+    if not models_loaded_successfully:
+        print(
+            "WARNING: One or more models failed to load on startup. Related endpoints may fail."
+        )
 
     yield  # The application runs while yielded
 
@@ -45,120 +106,81 @@ async def lifespan(app: FastAPI):
     print("Application shutdown.")
 
 
+# --- End Lifespan Context Manager ---
+
+
 # --- Initialize FastAPI App ---
-# Provides metadata for documentation (visible at /docs)
 app = FastAPI(
-    title="IPL Match Winner" " Predictor API",
-    description="A simple API using a basic"
-    " ML model to predict the winner of an IPL match.",
-    version="0.1.0",
-    lifespan=lifespan,
+    title="IPL Predictor API (FastAPI)",
+    description="API for predicting IPL match winners and first innings scores.",
+    version="0.2.0",  # Incremented version
+    lifespan=lifespan,  # Use lifespan for startup loading
 )
-# --- End App Initialization ---
 
 
-# --- Define Data Models (using Pydantic) ---
-# Input model: Defines the structure and types expected in the request body
-# Includes example values for documentation clarity
-# --- Define Data Models ---
-class MatchInput(BaseModel):
-    team1: str = Field(..., example="Chennai Super Kings")
-    team2: str = Field(..., example="Rajasthan Royals")
-    toss_winner: str = Field(..., example="Rajasthan Royals")
-    toss_decision: str = Field(
-        ...,
-        example="field",
-        description="Decision made after winning toss ('field' or 'bat')",
-    )
-    venue: str = Field(..., example="MA Chidambaram Stadium")
-    city: str = Field(..., example="Chennai")
-    match_date: str = Field(
-        ..., example="2024-05-10", description="Date of the match (YYYY-MM-DD)"
-    )  # <-- ADDED FIELD
-
-
-# Output model: Defines the structure of the response
-class PredictionOutput(BaseModel):
-    predicted_winner: str
-    confidence: Optional[float] = Field(None, example=0.75)
-    explanation: Optional[str] = Field(
-        None,
-        example="Mumbai Indians might be favored due to their strong batting lineup.",
-    )
-
-
-# --- End Data Models ---
-
-
-# --- Prediction Endpoint ---
+# --- Winner Prediction Endpoint ---
 @app.post(
-    "/predict",
-    response_model=PredictionOutput,  # Response model now includes explanation
-    summary="Predict IPL Match Winner with Explanation",  # Updated summary
+    "/predict_winner",  # Renamed endpoint slightly for clarity
+    response_model=WinnerPredictionOutput,
+    summary="Predict IPL Match Winner with Explanation",
     tags=["Predictions"],
 )
 async def post_predict_winner(match_input: MatchInput):
-    """
-    Receives match details, uses the ML model to predict the winner,
-    queries an LLM for an explanation, and returns both.
-    """
-    print(f"Received prediction request for input: {match_input.model_dump()}")
+    """Receives match details, predicts winner, confidence, and explanation."""
+    print(f"Received winner prediction request: {match_input.model_dump()}")
+    if not PREDICTORS_LOADED:
+        raise HTTPException(
+            status_code=503, detail="Predictor service unavailable (load failure)."
+        )
+
     input_dict: Dict[str, Any] = match_input.model_dump()
-
     try:
-        # Call the updated prediction function which returns a dictionary
         prediction_result = await predict_winner(input_data=input_dict)
-
-        # winner: Optional[str] = prediction_result.get("prediction")
-        # explanation: Optional[str] = prediction_result.get("explanation")
-
-        # if winner is None:  # Check if ML prediction itself failed within predict_winner
-        #     print("ERROR: Prediction function failed to return a winner.")
-        #     raise HTTPException(
-        #         status_code=500,
-        #         detail="Prediction failed: Model did not return a winner.",
-        #     )
-
-        # print(
-        #     f"Prediction successful: Winner='{winner}',"
-        #     f"Explanation='{explanation if explanation else 'N/A'}'"
-        # )
-
-        return PredictionOutput(
-            predicted_winner=prediction_result.get("prediction"),
+        # Directly populate the Pydantic model
+        return WinnerPredictionOutput(
+            prediction=prediction_result.get("prediction"),
             confidence=prediction_result.get("confidence"),
             explanation=prediction_result.get("explanation"),
         )
-
-    except FileNotFoundError:
-        error_detail = (
-            "Model file not found. Please ensure the model is trained and available."
+    except Exception as e:  # Catch unexpected errors from predictor call
+        print(f"UNEXPECTED ERROR during winner prediction: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error during prediction: {e}"
         )
-        print(f"ERROR during prediction: {error_detail}")
-        raise HTTPException(status_code=503, detail=error_detail)
-    except (ValueError, RuntimeError) as e:
-        error_detail = f"Prediction error: {str(e)}"
-        print(f"ERROR during prediction: {error_detail}")
-        # Use 400 for input errors (ValueError), 500 for runtime issues
-        status_code = 400 if isinstance(e, ValueError) else 500
-        raise HTTPException(status_code=status_code, detail=error_detail)
-    except Exception as e:
-        error_detail = f"An unexpected error occurred: {str(e)}"
-        print(f"UNEXPECTED ERROR during prediction: {error_detail}")
-        raise HTTPException(status_code=500, detail=error_detail)
 
 
-# --- End Prediction Endpoint ---
+# --- Score Prediction Endpoint (NEW) ---
+@app.post(
+    "/predict_score",
+    response_model=ScorePredictionOutput,
+    summary="Predict IPL First Innings Score",
+    tags=["Predictions"],
+)
+async def post_predict_score(match_input: MatchInput):
+    """Receives match details, predicts the likely first innings score."""
+    print(f"Received score prediction request: {match_input.model_dump()}")
+    if not PREDICTORS_LOADED:
+        raise HTTPException(
+            status_code=503, detail="Predictor service unavailable (load failure)."
+        )
+
+    input_dict: Dict[str, Any] = match_input.model_dump()
+    try:
+        score_result = await predict_score(input_data=input_dict)
+        # Directly populate the Pydantic model
+        return ScorePredictionOutput(
+            predicted_score=score_result.get("predicted_score"),
+            error=score_result.get("error"),  # Pass potential error message
+        )
+    except Exception as e:  # Catch unexpected errors from predictor call
+        print(f"UNEXPECTED ERROR during score prediction: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during score prediction: {e}",
+        )
 
 
-# --- Optional: Root Endpoint for Basic Check ---
+# --- Root Endpoint ---
 @app.get("/", tags=["General"])
 async def read_root():
-    """Basic endpoint to check if the API is running."""
-    return {
-        "message": "IPL Predictor API is running."
-        " Use the /docs endpoint for details."
-    }
-
-
-# --- End Root Endpoint ---
+    return {"message": "IPL Predictor API (FastAPI) is running. Use /docs for details."}

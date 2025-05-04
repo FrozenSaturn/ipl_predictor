@@ -2,116 +2,150 @@
 
 import sys
 import os
-from datetime import date  # <-- Added import for date object type check
+from datetime import date
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework import (
-    status,
-    viewsets,
-    permissions,
-)  # Keep permissions if needed later
+from rest_framework.decorators import action  # Keep for PlayerViewSet action
+from rest_framework import status, viewsets, permissions, filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from drf_spectacular.utils import extend_schema
-from asgiref.sync import async_to_sync  # Keep this import
+from asgiref.sync import async_to_sync
+from typing import Dict, Optional, Union
 
+# Import all necessary models and serializers
 from .models import Team, Venue, Match, Player, PlayerMatchPerformance
 from .serializers import (
     TeamSerializer,
     VenueSerializer,
     MatchSerializer,
-    MatchInputSerializer,
-    PredictionOutputSerializer,
     PlayerSerializer,
+    MatchInputSerializer,
+    PredictionOutputSerializer,  # Used by existing PredictionView (winner)
     PlayerMatchPerformanceSerializer,
+    ScorePredictionOutputSerializer,  # Import the new serializer for score output
 )
 
 # --- Add src directory to Python path ---
-# (Keep this block as is)
 SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-if SRC_DIR not in sys.path:
-    sys.path.append(SRC_DIR)
 # --- End Path Handling ---
 
-# --- Import predictor functions and load model ---
-# (Keep this block as is, including PREDICTOR_AVAILABLE flag logic)
-try:
-    from ipl_predictor.predictor import predict_winner, load_pipeline
+# --- Import predictor functions and load models/encoder ---
+# Initialize flags and placeholders
+PREDICTOR_AVAILABLE = False
+SCORE_PREDICTOR_AVAILABLE = False
+predict_winner = None
+predict_score = None
 
-    load_pipeline()
-    print("Django View: ML Pipeline loaded via load_pipeline() on module import.")
+
+# Dummy functions for type consistency on import failure
+async def _dummy_winner_predictor(
+    *args, **kwargs
+) -> Dict[str, Optional[Union[str, float]]]:
+    return {
+        "prediction": None,
+        "confidence": None,
+        "explanation": "Predictor Unavailable",
+    }
+
+
+async def _dummy_score_predictor(*args, **kwargs) -> Dict[str, Optional[float]]:
+    return {"predicted_score": None, "error": "Predictor Unavailable"}
+
+
+try:
+    # Import winner predictor components
+    from ipl_predictor.predictor import (
+        predict_winner as actual_predict_winner,
+        load_winner_pipeline_and_encoder,
+    )
+
+    load_winner_pipeline_and_encoder()  # Load winner model/encoder
+    print("Django View: Winner Pipeline & Encoder loaded.")
+    predict_winner = actual_predict_winner  # Assign actual function
     PREDICTOR_AVAILABLE = True
-    # Ensure predict_winner is defined even if import failed within try block for safety
-    # Though PREDICTOR_AVAILABLE flag handles the logic flow
-except ImportError as e:
+
+    # Try importing and loading score predictor components separately
+    try:
+        from ipl_predictor.predictor import (
+            predict_score as actual_predict_score,
+            load_score_pipeline,
+        )
+
+        load_score_pipeline()  # Load score model
+        print("Django View: Score Pipeline loaded.")
+        predict_score = actual_predict_score  # Assign actual function
+        SCORE_PREDICTOR_AVAILABLE = True
+    except (ImportError, FileNotFoundError, Exception) as score_e:
+        print(
+            f"ERROR (Django View): Failed score model load: {score_e}. Score endpoint unavailable."
+        )
+        predict_score = _dummy_score_predictor  # Assign dummy score predictor
+
+except (ImportError, FileNotFoundError, Exception) as winner_e:
     print(
-        f"ERROR (Django View): Failed to import from 'ipl_predictor': {e}. Prediction endpoint will be unavailable."
+        f"ERROR (Django View): Failed winner predictor/model load: {winner_e}. Winner endpoint unavailable."
     )
-    PREDICTOR_AVAILABLE = False
-    # predict_winner = None  # Define as None on failure
-except FileNotFoundError as e:
-    print(
-        f"ERROR (Django View): Model file not found during initial load: {e}. Prediction endpoint will be unavailable."
+    predict_winner = _dummy_winner_predictor  # Assign dummy winner predictor
+    predict_score = (
+        _dummy_score_predictor  # Score also unavailable if base import failed
     )
-    PREDICTOR_AVAILABLE = False
-    # predict_winner = None
-except Exception as e:
-    print(
-        f"ERROR (Django View): Unexpected error during initial load: {e}. Prediction endpoint will be unavailable."
-    )
-    PREDICTOR_AVAILABLE = False
-    # predict_winner = None
 # --- End Imports ---
 
 
 # =============================================================================
 # ViewSet for Database Model Access (Read Only)
 # =============================================================================
-# (Keep your existing ViewSet definitions for Player, Team, Venue, Match - they are correct)
+# (Keep PlayerViewSet, TeamViewSet, VenueViewSet, MatchViewSet exactly as you provided)
 
 
-# =============================================================================
-# ViewSet for Player Model Access
-# =============================================================================
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    API endpoint that allows players to be viewed.
-    Includes an action to get recent performance.
-    """
+    """API endpoint that allows players to be viewed."""
 
     queryset = Player.objects.all()
-    serializer_class = PlayerSerializer  # Default serializer is still PlayerSerializer
-    permission_classes = [permissions.IsAuthenticated]  # Rely on default from settings
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    serializer_class = PlayerSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
     filterset_fields = ["name"]
     search_fields = ["name"]
-    pagination_class = None
     ordering_fields = ["name", "created_at"]
     ordering = ["name"]
+    pagination_class = None
 
-    @action(detail=True, methods=["get"], url_path="recent-performance")
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="recent-performance",
+        url_name="recent-performance",
+    )
+    @extend_schema(
+        summary="Get Player Recent Performance",
+        description="Returns performance statistics for the player's last 5 matches.",
+        responses={
+            200: PlayerMatchPerformanceSerializer(many=True),
+            404: {"description": "Player not found or no performance data available."},
+        },
+        tags=["Players"],
+    )
     def recent_performance(self, request, pk=None):
-        """
-        Returns the performance stats for the player's last 5 matches.
-        """
-        player = self.get_object()  # Gets the Player instance based on pk from URL
-        num_matches = 5  # How many recent matches to fetch
-
-        # Query performance, order by match date descending, limit results
-        recent_performances = PlayerMatchPerformance.objects.filter(
-            player=player
-        ).order_by("-match__date")[
-            :num_matches
-        ]  # Slice for latest N
-
+        """Returns the performance stats for the player's last 5 matches."""
+        try:
+            player = self.get_object()
+        except Player.DoesNotExist:
+            return Response(
+                {"detail": "Player not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+        num_matches = 5
+        recent_performances = (
+            PlayerMatchPerformance.objects.filter(player=player)
+            .select_related("match", "match__venue")
+            .order_by("-match__date")[:num_matches]
+        )
         if not recent_performances.exists():
             return Response(
-                {"detail": "No performance data found for this player."},
+                {"detail": "No performance data available."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-        # Serialize the performance data
         serializer = PlayerMatchPerformanceSerializer(recent_performances, many=True)
         return Response(serializer.data)
 
@@ -119,7 +153,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 class TeamViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Team.objects.all()
     serializer_class = TeamSerializer
-    # permission_classes = [permissions.IsAuthenticated] # Uncomment if needed
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["name", "short_name"]
     search_fields = ["name", "short_name"]
@@ -130,7 +164,7 @@ class TeamViewSet(viewsets.ReadOnlyModelViewSet):
 class VenueViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Venue.objects.all()
     serializer_class = VenueSerializer
-    # permission_classes = [permissions.IsAuthenticated] # Uncomment if needed
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["name", "city", "country"]
     search_fields = ["name", "city"]
@@ -143,9 +177,9 @@ class MatchViewSet(viewsets.ReadOnlyModelViewSet):
         "team1", "team2", "venue", "toss_winner", "winner"
     ).all()
     serializer_class = MatchSerializer
-    # permission_classes = [permissions.IsAuthenticated] # Uncomment if needed
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = {  # Using dictionary for more specific lookups
+    filterset_fields = {
         "season": ["exact", "in"],
         "date": ["exact", "gte", "lte", "range"],
         "venue__name": ["exact", "icontains"],
@@ -161,47 +195,122 @@ class MatchViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # =============================================================================
-# API View for Predictions
+# API View for Winner Predictions
 # =============================================================================
+# (Keep your existing PredictionView exactly as provided)
+class PredictionView(APIView):  # Keeping original name as requested
+    """Handles requests to predict match winners."""
 
+    permission_classes = [permissions.IsAuthenticated]
 
-class PredictionView(APIView):
-    """
-    Handles requests to predict match winners using the ML model and LLM explanation.
-    Requires Token Authentication by default (if set in settings.py).
-    """
-
-    # Make sure appropriate permissions are set, using project default for now
-    # permission_classes = [permissions.IsAuthenticated] # Example
-
-    @extend_schema(  # Keep documentation decorator
+    @extend_schema(
         summary="Predict IPL Match Winner with Explanation",
-        description="Takes match details (teams, venue, toss, date) and returns "
-        "the predicted winner along with an LLM explanation.",
-        request=MatchInputSerializer,  # Serializer now includes match_date
+        description="Takes match details (teams, venue, toss, date) and returns the predicted winner, confidence score, and an LLM explanation.",
+        request=MatchInputSerializer,
         responses={
             200: PredictionOutputSerializer,
-            400: {"description": "Bad Request: Input validation failed"},
-            503: {"description": "Service Unavailable: Predictor/Model unavailable"},
-            500: {"description": "Internal Server Error: Prediction failed"},
+            400: {"description": "Bad Request"},
+            503: {"description": "Service Unavailable"},
+            500: {"description": "Internal Server Error"},
         },
         tags=["Predictions"],
     )
     def post(self, request, *args, **kwargs):
-        """
-        Handles POST requests. Expects JSON matching MatchInputSerializer.
-        Returns prediction and explanation.
-        """
+        """Handles POST requests for winner prediction."""
         print(f"Django PredictionView received POST request data: {request.data}")
 
-        if not PREDICTOR_AVAILABLE or predict_winner is None:
-            print("ERROR: Prediction function not available (import/load failed?).")
+        if not PREDICTOR_AVAILABLE:  # Check winner predictor flag
             return Response(
-                {"error": "Prediction service is currently unavailable."},
+                {"error": "Winner prediction service unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        # 1. Validate Input Data
+        input_serializer = MatchInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_input_data = input_serializer.validated_data
+        print(f"Validated input data (before date conversion): {validated_input_data}")
+
+        if "match_date" in validated_input_data and isinstance(
+            validated_input_data["match_date"], date
+        ):
+            validated_input_data["match_date"] = validated_input_data[
+                "match_date"
+            ].isoformat()
+            print(f"Converted input data for predictor: {validated_input_data}")
+
+        try:
+            prediction_result = async_to_sync(predict_winner)(
+                input_data=validated_input_data
+            )
+            # Handle potential errors returned from predictor
+            if (
+                prediction_result.get("prediction") is None
+                and prediction_result.get("explanation") is not None
+            ):
+                print(
+                    f"ERROR during Django winner prediction: {prediction_result.get('explanation')}"
+                )
+                status_code = (
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                    if "Model loading failed"
+                    in prediction_result.get("explanation", "")
+                    else status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                return Response(
+                    {"error": prediction_result.get("explanation")}, status=status_code
+                )
+
+        except Exception as e:  # Catch errors from async_to_sync or predictor itself
+            error_detail = f"Unexpected error during winner prediction: {str(e)}"
+            print(
+                f"UNEXPECTED ERROR during Django winner prediction: {e}",
+                file=sys.stderr,
+            )
+            return Response(
+                {"error": error_detail}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # Serialize Output Data using the original PredictionOutputSerializer
+        output_serializer = PredictionOutputSerializer(prediction_result)
+        print(
+            f"Winner prediction successful. Returning response: {output_serializer.data}"
+        )
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# API View for Score Predictions (NEW)
+# =============================================================================
+class ScorePredictionView(APIView):
+    """Handles requests to predict first innings score."""
+
+    permission_classes = [permissions.IsAuthenticated]  # Keep consistent auth
+
+    @extend_schema(
+        summary="Predict IPL First Innings Score",
+        description="Takes match details (teams, venue, toss, date) and returns the predicted first innings score.",
+        request=MatchInputSerializer,  # Uses the same input serializer
+        responses={
+            200: ScorePredictionOutputSerializer,  # Uses the new output serializer
+            400: {"description": "Bad Request: Input validation failed"},
+            503: {"description": "Service Unavailable: Score predictor not loaded"},
+            500: {"description": "Internal Server Error: Unexpected prediction error"},
+        },
+        tags=["Predictions"],  # Group with other predictions
+    )
+    def post(self, request, *args, **kwargs):
+        """Handles POST requests for score prediction."""
+        print(f"Django ScorePredictionView received POST request data: {request.data}")
+
+        if not SCORE_PREDICTOR_AVAILABLE:  # Check specific flag for score predictor
+            return Response(
+                {"error": "Score prediction service unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # 1. Validate Input Data (using same serializer)
         input_serializer = MatchInputSerializer(data=request.data)
         if not input_serializer.is_valid():
             print(f"Input validation failed: {input_serializer.errors}")
@@ -210,8 +319,7 @@ class PredictionView(APIView):
         validated_input_data = input_serializer.validated_data
         print(f"Validated input data (before date conversion): {validated_input_data}")
 
-        # --- Convert validated date object back to 'YYYY-MM-DD' string ---
-        # The predict_winner function expects the date as a string
+        # Convert date object back to 'YYYY-MM-DD' string for predictor
         if "match_date" in validated_input_data and isinstance(
             validated_input_data["match_date"], date
         ):
@@ -219,59 +327,43 @@ class PredictionView(APIView):
                 "match_date"
             ].isoformat()
             print(f"Converted input data for predictor: {validated_input_data}")
-        # --- End date conversion ---
 
-        # 2. Call Prediction Logic (using async_to_sync)
+        # 2. Call Score Prediction Logic
         try:
-            # Call the async predictor function from our synchronous view context
-            prediction_result = async_to_sync(predict_winner)(
-                input_data=validated_input_data
-            )
+            # Call the async score predictor function from sync context
+            score_result = async_to_sync(predict_score)(input_data=validated_input_data)
 
-            # Handle potential failure during feature retrieval within predict_winner
-            if prediction_result.get(
-                "prediction"
-            ) is None and "Failed to retrieve features" in prediction_result.get(
-                "explanation", ""
+            # Check for errors returned within the score_result dictionary
+            if (
+                score_result.get("predicted_score") is None
+                and score_result.get("error") is not None
             ):
                 print(
-                    f"ERROR during Django prediction: {prediction_result.get('explanation')}"
+                    f"ERROR during Django score prediction: {score_result.get('error')}"
+                )
+                status_code = (
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                    if "model loading failed" in score_result.get("error", "").lower()
+                    else status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
                 return Response(
-                    {"error": prediction_result.get("explanation")},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    {"error": score_result.get("error")}, status=status_code
                 )
 
-        # --- Keep existing error handling ---
-        except FileNotFoundError:
-            error_detail = (
-                "Model file not found during prediction. Service unavailable."
+        except Exception as e:  # Catch errors from async_to_sync or predictor itself
+            error_detail = f"Unexpected error during score prediction: {str(e)}"
+            print(
+                f"UNEXPECTED ERROR during Django score prediction: {e}", file=sys.stderr
             )
-            print(f"ERROR during Django prediction: {error_detail}")
-            return Response(
-                {"error": error_detail}, status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
-        except (ValueError, RuntimeError) as e:
-            error_detail = f"Prediction error: {str(e)}"
-            print(f"ERROR during Django prediction: {error_detail}")
-            status_code = (
-                status.HTTP_400_BAD_REQUEST
-                if isinstance(e, ValueError)
-                else status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            return Response({"error": error_detail}, status=status_code)
-        except Exception as e:
-            error_detail = "An unexpected error occurred during prediction."
-            print(f"UNEXPECTED ERROR during Django prediction: {e}", file=sys.stderr)
             return Response(
                 {"error": error_detail}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        # --- End error handling ---
 
         # 3. Serialize Output Data
-        # Pass the dictionary returned by predict_winner to the output serializer
-        output_serializer = PredictionOutputSerializer(prediction_result)
-        # No need for .is_valid() on output usually, unless complex validation needed
+        # Pass the dictionary returned by predict_score
+        output_serializer = ScorePredictionOutputSerializer(score_result)
 
-        print(f"Prediction successful. Returning response: {output_serializer.data}")
+        print(
+            f"Score prediction successful. Returning response: {output_serializer.data}"
+        )
         return Response(output_serializer.data, status=status.HTTP_200_OK)

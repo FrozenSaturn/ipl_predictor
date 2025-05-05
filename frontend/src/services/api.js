@@ -98,6 +98,24 @@ export const predictScore = async (matchData) => {
   }
 };
 
+export const getMatchHistory = async (team1Name, team2Name) => {
+  // Basic validation
+  if (!team1Name || !team2Name) {
+    throw new Error("Two team names are required for history lookup.");
+  }
+  try {
+    const queryParams = `?search=${encodeURIComponent(team1Name)}&search=${encodeURIComponent(team2Name)}&ordering=-date&page_size=200`;
+    const url = `/matches/${queryParams}`;
+
+    console.log("api.js: getMatchHistory requesting URL:", url);
+    const response = await apiClient.get(url);
+    return response.data; // Expects direct array or { count: ..., results: [...] }
+  } catch (error) {
+    console.error(`Error fetching match history for ${team1Name} vs ${team2Name}:`, error.response?.data || error.message);
+    throw error;
+  }
+};
+
 
 
 

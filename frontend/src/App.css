@@ -378,3 +378,26 @@ button:disabled {
   max-width: 100%;
   max-height: 100%;
 }
+
+
+.history-summary p {
+  margin-bottom: calc(var(--spacing-unit) * 0.5); /* Add space below title */
+}
+
+.history-summary ul {
+list-style: none; /* Remove default bullets */
+padding: 0;
+margin: calc(var(--spacing-unit) * 0.5) 0 0 0; /* Adjust margins */
+}
+
+.history-summary li {
+padding: 2px 0; /* Add small padding between list items */
+font-size: 0.95em;
+}
+
+.summary-divider {
+border: none;
+border-top: 1px solid var(--border-color); /* Use theme border color */
+margin: var(--spacing-unit) 0; /* Space around divider */
+opacity: 0.5;
+}

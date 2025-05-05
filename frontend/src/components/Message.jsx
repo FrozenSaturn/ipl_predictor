@@ -102,6 +102,24 @@ function Message({ message }) {
         );
       // --- END NEW CASE ---
 
+      case 'historySummary':
+        return (
+          <div className="history-summary"> {/* Add class for potential styling */}
+            <p><strong>Head-to-Head: {content.team1Name} vs {content.team2Name}</strong></p>
+            {/* Optional separator */}
+            <hr className="summary-divider" />
+            {/* Use a list or paragraphs for stats */}
+            <ul>
+                <li>Played: {content.played}</li>
+                <li>{content.team1Name} Won: {content.team1Wins}</li>
+                <li>{content.team2Name} Won: {content.team2Wins}</li>
+                <li>Draw/No Result: {content.drawsOrNR}</li>
+            </ul>
+          </div>
+        );
+
+
+
       case 'error':
         return <p className="error-text">⚠️ {content.text}</p>;
       case 'loading':
@@ -131,9 +149,15 @@ Message.propTypes = {
         confidence: PropTypes.number,
         explanation: PropTypes.string,
         predicted_score: PropTypes.number,
-        // New type content
         playerName: PropTypes.string,
-        performanceData: PropTypes.array, // Expects the array of performance objects
+        performanceData: PropTypes.array,
+        // New type content for history
+        team1Name: PropTypes.string,
+        team2Name: PropTypes.string,
+        played: PropTypes.number,
+        team1Wins: PropTypes.number,
+        team2Wins: PropTypes.number,
+        drawsOrNR: PropTypes.number,
     }).isRequired,
   }).isRequired,
 };

@@ -26,10 +26,10 @@ try:
     DJANGO_LOADED = True
 except Exception as e:
     print(f"ERROR: Failed Django setup in predictor.py: {e}")
-    Match = None
-    Team = None
-    Q = None
-    DJANGO_LOADED = False
+    # Match = None
+    # Team = None
+    # Q = None
+    # DJANGO_LOADED = False
 # --- End Django Setup ---
 
 
@@ -285,7 +285,7 @@ def _fetch_all_features_sync(
 
 # --- Async Feature Fetching Function ---
 async def get_features_for_match(
-    input_data: Dict[str, Any]
+    input_data: Dict[str, Any],
 ) -> Optional[Dict[str, float]]:
     """Asynchronously calls the synchronous DB lookup helper."""
     # ... (Logic unchanged, calls _fetch_all_features_sync) ...
@@ -313,7 +313,7 @@ async def get_features_for_match(
 # --- Winner Predictor Function (Unchanged from last working version) ---
 # --- Predictor Function ---
 async def predict_winner(
-    input_data: Dict[str, Any]
+    input_data: Dict[str, Any],
 ) -> Dict[str, Optional[Union[str, float]]]:
     """
     Predicts winner (decoding labels), confidence, gets LLM explanation async.

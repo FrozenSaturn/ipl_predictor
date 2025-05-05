@@ -27,35 +27,6 @@ class VenueSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "city", "country"]
 
 
-class MatchSerializer(serializers.ModelSerializer):
-    team1 = serializers.StringRelatedField()
-    team2 = serializers.StringRelatedField()
-    venue = serializers.StringRelatedField()
-    toss_winner = serializers.StringRelatedField()
-    winner = serializers.StringRelatedField()
-
-    class Meta:
-        model = Match
-        fields = [
-            "id",
-            "match_id_source",
-            "season",
-            "date",
-            "match_number",
-            "team1",
-            "team2",
-            "venue",
-            "toss_winner",
-            "toss_decision",
-            "winner",
-            "result_type",
-            "result_margin",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 # =============================================================================
 # Serializers for Prediction Endpoint (Input and Output)
 # =============================================================================
@@ -168,3 +139,25 @@ class ScorePredictionOutputSerializer(serializers.Serializer):
     predicted_score = serializers.FloatField(read_only=True, allow_null=True)
     # Include error field to pass back messages from predictor if needed
     error = serializers.CharField(read_only=True, allow_null=True, required=False)
+
+
+class MatchSerializer(serializers.ModelSerializer):
+    # --- THIS NESTING IS CRUCIAL ---
+    team1 = TeamSerializer(read_only=True)
+    team2 = TeamSerializer(read_only=True)
+    winner = TeamSerializer(read_only=True, allow_null=True)
+    venue = VenueSerializer(read_only=True)  # If you nested venue
+
+    class Meta:
+        model = Match
+        # --- ENSURE 'team1', 'team2', 'winner', 'venue' ARE LISTED HERE ---
+        fields = [
+            "id",
+            "date",
+            "season",  # ... other direct fields ...
+            "venue",  # Must be listed to include nested object
+            "team1",  # Must be listed to include nested object
+            "team2",  # Must be listed to include nested object
+            "winner",  # Must be listed to include nested object
+            # ... other direct fields like 'result_margin' etc. ...
+        ]

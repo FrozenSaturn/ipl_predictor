@@ -126,10 +126,6 @@ html, body, #root {
   margin: calc(var(--spacing-unit) * 3) 0;
 }
 
-/* --- Chat Interface Box (Right) --- */
-.chat-interface {
-  /* Flex direction column is default via .bento-box */
-}
 
 .chat-main {
   flex-grow: 1; /* Message list takes available space */
@@ -235,23 +231,50 @@ button:disabled {
 .message-list {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--spacing-unit) * 1.5);
+  gap: calc(var(--spacing-unit) * 2);
 }
 
 .message-bubble {
-  padding: calc(var(--spacing-unit) * 1.2) calc(var(--spacing-unit) * 1.8);
+  padding: calc(var(--spacing-unit) * 1.5) calc(var(--spacing-unit) * 2);
   border-radius: var(--border-radius-large);
-  max-width: 80%; /* Max bubble width */
+  max-width: 80%;
   word-wrap: break-word;
-  line-height: 1.4;
+  line-height: 1.45;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
-.message-bubble p { margin: 0 0 calc(var(--spacing-unit) * 0.5) 0; }
+
+.message-bubble p { margin: 0 0 calc(var(--spacing-unit) * 0.75) 0; }
 .message-bubble p:last-child { margin-bottom: 0; }
 .message-bubble strong { font-weight: 600; }
 
+.message-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border: 10px solid transparent;
+}
+
+.user-bubble::after {
+  right: -8px;
+  border-left-color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+  border-right-width: 0;
+  border-top-width: 0;
+}
+
+.bot-bubble::after {
+  left: -8px;
+  border-right-color: var(--bg-tertiary);
+  border-bottom-color: var(--bg-tertiary);
+  border-left-width: 0;
+  border-top-width: 0;
+}
+
 .user-bubble {
-  background-color: var(--bg-accent-user);
-  color: var(--text-primary);
+  background-color: var(--accent-primary);
+  color: white;
   border-bottom-right-radius: var(--border-radius-small);
   align-self: flex-end;
   margin-left: auto;
@@ -259,27 +282,37 @@ button:disabled {
 
 .bot-bubble {
   background-color: var(--bg-tertiary);
-  color: var(--text-secondary); /* Slightly muted bot text */
+  color: var(--text-secondary);
   border-bottom-left-radius: var(--border-radius-small);
   align-self: flex-start;
   margin-right: auto;
 }
+
 .bot-bubble strong { /* Make bot highlights stand out */
     color: var(--text-primary);
 }
+
 .bot-bubble .error-text { color: var(--text-error); font-weight: 500; }
+
+.bot-bubble .history-summary strong
+ {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .bot-bubble .chat-explanation {
-  background-color: var(--bg-secondary); /* Nested background */
+  background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-small);
   padding: var(--spacing-unit);
   margin-top: var(--spacing-unit);
-  font-size: 0.85em;
-  max-height: 150px;
+  font-size: 0.9em;
+  max-height: 170px;
   overflow-y: auto;
   color: var(--text-secondary);
   white-space: pre-wrap;
 }
+
 /* Loading dots */
 .loading-dots span { animation: blink 1.4s infinite both; font-size: 1.5em; font-weight: bold; color: var(--text-secondary); }
 .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
@@ -380,19 +413,18 @@ button:disabled {
 }
 
 
-.history-summary p {
-  margin-bottom: calc(var(--spacing-unit) * 0.5); /* Add space below title */
+.history-summary p > strong { /* Ensure H2H title is bright */
+  color: var(--text-primary);
 }
-
-.history-summary ul {
-list-style: none; /* Remove default bullets */
-padding: 0;
-margin: calc(var(--spacing-unit) * 0.5) 0 0 0; /* Adjust margins */
-}
-
+/* .history-summary ul { Keep these styles } */
 .history-summary li {
-padding: 2px 0; /* Add small padding between list items */
-font-size: 0.95em;
+padding: 3px 0;
+font-size: 0.9em;
+color: var(--text-secondary);
+}
+.history-summary li:first-child {
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .summary-divider {
@@ -400,4 +432,62 @@ border: none;
 border-top: 1px solid var(--border-color); /* Use theme border color */
 margin: var(--spacing-unit) 0; /* Space around divider */
 opacity: 0.5;
+}
+
+.gauge-container {
+  width: 100px;
+  height: 50px;
+  position: relative;
+  margin: var(--spacing-unit) auto;
+}
+
+.gauge-semi-circle {
+  width: 100px;
+  height: 50px;
+  border-radius: 50px 50px 0 0;
+  background-color: var(--bg-secondary);
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  z-index: 1;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.gauge-needle {
+  width: 3px;
+  height: 45px;
+  background-color: var(--text-accent);
+  border-radius: 3px 3px 0 0;
+  position: absolute;
+  bottom: 0;
+  left: calc(50% - 1.5px);
+  transform-origin: bottom center;
+  z-index: 3;
+  transition: transform 0.7s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+}
+
+.gauge-center-pivot {
+  width: 8px;
+  height: 8px;
+  background-color: var(--text-secondary);
+  border-radius: 50%;
+  position: absolute;
+  bottom: -2px;
+  left: calc(50% - 4px);
+  z-index: 4;
+}
+
+.gauge-value-text {
+  position: absolute;
+  /* Position below the gauge */
+  top: 100%; /* Start right below the container */
+  margin-top: 4px; /* Add small space */
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  font-weight: 600;
+  z-index: 2;
 }

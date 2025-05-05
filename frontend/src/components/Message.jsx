@@ -2,11 +2,8 @@
 import React from 'react'; // useMemo might not be needed if calculating directly
 import PropTypes from 'prop-types';
 import ConfidenceBar from './ConfidenceBar';
-// --- Import Chart Components ---
+import PredictionGauge from './PredictionGauge';
 import { Bar, Line } from 'react-chartjs-2';
-
-// Note: Chart.js elements should be registered globally (e.g., in App.jsx or main.jsx)
-// If not, you'd need to import and register them here, which is less ideal.
 
 function Message({ message }) {
   const { sender, type, content } = message;
@@ -26,12 +23,16 @@ function Message({ message }) {
             {typeof content.predicted_score === 'number' && (
                <p><strong>Predicted 1st Innings Score:</strong> {Math.round(content.predicted_score)}</p>
             )}
-            {typeof content.confidence === 'number' ? (
-              <div className="confidence-display" style={{ margin: '8px 0' }}>
-                 <span style={{ fontWeight: 'bold', marginRight: '8px', flexShrink: 0 }}>Confidence:</span>
-                 <ConfidenceBar score={content.confidence} />
-              </div>
-            ) : (<p><i>Confidence: N/A</i></p>)}
+            {typeof content.confidence === 'number' && content.team1Name && content.team2Name ? (
+              <PredictionGauge
+                score={content.confidence}
+                winner={content.winner} // Pass winner to gauge
+                team1Name={content.team1Name} // Pass team 1 name
+                team2Name={content.team2Name} // Pass team 2 name
+              />
+            ) : (
+                 content.winner && <p><i>Confidence: N/A</i></p> // Show N/A if confidence missing
+             )}
             {content.explanation && content.explanation.trim() !== '' ? (
                  <>
                     <p style={{ marginTop: '5px', marginBottom: '5px' }}><strong>Explanation:</strong></p>

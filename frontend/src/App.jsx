@@ -73,7 +73,10 @@ function App() {
               winner: predictionOutcome?.predicted_winner,
               confidence: predictionOutcome?.confidence, // Corrected key from previous step
               explanation: predictionOutcome?.explanation,
-              predicted_score: scoreOutcome?.predicted_score
+              predicted_score: scoreOutcome?.predicted_score,
+              team1Name: submittedFormData.team1,
+              team2Name: submittedFormData.team2
+
           });
            // Optionally clear form: setFormData({ team1:'', team2:'', ... });
       }
@@ -245,8 +248,6 @@ function App() {
                  addMessage(SENDER_BOT, 'text', { text: `Found related matches, but none directly between ${requestedTeam1} and ${requestedTeam2}.` });
             } else {
                 // --- Use REQUESTED names in the final summary ---
-                const summaryText = `Head-to-Head: ${requestedTeam1} vs ${requestedTeam2}\n--------------------------\nPlayed: ${totalPlayed}\n${requestedTeam1} Won: ${team1Wins}\n${requestedTeam2} Won: ${team2Wins}\nDraw/No Result: ${drawsOrNR}`;
-                addMessage(SENDER_BOT, 'text', { text: summaryText });
                 addMessage(SENDER_BOT, 'historySummary', {
                   team1Name: requestedTeam1, // Use names user requested
                   team2Name: requestedTeam2,

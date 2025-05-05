@@ -352,7 +352,11 @@ button:disabled {
 .id-note a:hover { text-decoration: underline; }
 
 .performance-display { margin-top: var(--spacing-unit); }
-.chart-container { margin-bottom: calc(var(--spacing-unit)*2); padding-bottom: var(--spacing-unit); border-bottom: 1px dashed var(--border-color); }
+.chart-container {
+  margin-bottom: calc(var(--spacing-unit)*2);
+  padding-bottom: var(--spacing-unit);
+  border-bottom: 1px dashed var(--border-color);
+}
 .chart-container:last-child { border-bottom: none; }
 /* Remember to set Chart.js text colors via options in JS */
 
@@ -395,33 +399,36 @@ button:disabled {
     }
 }
 
-.chat-chart {
-  /* You might want to constrain the height */
-  max-height: 200px; /* Adjust as needed */
-  margin-top: 8px;
-  margin-bottom: 8px;
-  /* Ensure background is appropriate if needed */
-  /* background-color: rgba(0, 0, 0, 0.1); */
-  padding: 5px;
-  border-radius: var(--border-radius-small);
+.chart-container .chat-chart{
+  max-height: 50rem;
 }
 
-/* Ensure chart canvas is responsive within its container */
+.chat-chart {
+  max-height: 20rem;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 5px;
+  border-radius: var(--border-radius-medium);
+}
+
 .chat-chart canvas {
   max-width: 100%;
   max-height: 100%;
 }
 
 
-.history-summary p > strong { /* Ensure H2H title is bright */
+.history-summary p > strong {
   color: var(--text-primary);
 }
-/* .history-summary ul { Keep these styles } */
+
 .history-summary li {
 padding: 3px 0;
 font-size: 0.9em;
 color: var(--text-secondary);
+margin-left: 0.9em;
 }
+
 .history-summary li:first-child {
   font-weight: 500;
   color: var(--text-primary);
@@ -429,8 +436,8 @@ color: var(--text-secondary);
 
 .summary-divider {
 border: none;
-border-top: 1px solid var(--border-color); /* Use theme border color */
-margin: var(--spacing-unit) 0; /* Space around divider */
+border-top: 1px solid var(--border-color);
+margin: var(--spacing-unit) 0;
 opacity: 0.5;
 }
 

@@ -19,4 +19,5 @@ urlpatterns = [
     # Use 'predict/' or your preferred endpoint name
     path("predict/", views.PredictionView.as_view(), name="predict_match"),
     path("predict_score/", views.ScorePredictionView.as_view(), name="predict_score"),
+    path("llm-query/", views.LLMQueryView.as_view(), name="llm_query"),
 ]

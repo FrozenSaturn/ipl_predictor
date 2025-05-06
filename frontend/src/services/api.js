@@ -1,4 +1,3 @@
-// src/services/api.js
 import axios from "axios";
 
 // Get the base URL from environment variables, defaulting to your Django dev server
@@ -7,15 +6,12 @@ const API_BASE_URL =
 
 // Function to get the auth token (we'll store it securely later)
 const getAuthToken = () => {
-  // For now, let's hardcode it for testing, but REMOVE THIS LATER
-  // return 'YOUR_DJANGO_API_TOKEN'; // Replace with a real token for testing
-  // Better: Read from localStorage or secure storage after login
   return localStorage.getItem("authToken");
 };
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000, // 10 second timeout
+  timeout: 20000, // 10 second timeout
   headers: {
     "Content-Type": "application/json",
   },
@@ -37,7 +33,6 @@ apiClient.interceptors.request.use(
 
 export const predictMatch = async (matchData) => {
   try {
-    // Adjust the endpoint path if needed, assuming '/predict/' is relative to API_BASE_URL
     const response = await apiClient.post("/predict/", matchData);
     return response.data;
   } catch (error) {
@@ -112,6 +107,20 @@ export const getMatchHistory = async (team1Name, team2Name) => {
     return response.data; // Expects direct array or { count: ..., results: [...] }
   } catch (error) {
     console.error(`Error fetching match history for ${team1Name} vs ${team2Name}:`, error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const queryLLMContextual = async (payload) => {
+  if (!payload || !payload.user_question || !payload.match_context || !payload.original_explanation) {
+      throw new Error("Missing required data for LLM query (question, context, explanation).");
+  }
+  try {
+    console.log("api.js: Calling /llm-query/ with payload:", payload);
+    const response = await apiClient.post('/llm-query/', payload);
+    return response.data;
+  } catch (error) {
+    console.error("Error querying contextual LLM:", error.response?.data || error.message);
     throw error;
   }
 };

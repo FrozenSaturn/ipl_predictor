@@ -21,7 +21,7 @@ function Message({ message }) {
           <div>
             {content.winner && <p><strong>Prediction:</strong> {content.winner}</p>}
             {typeof content.predicted_score === 'number' && (
-               <p><strong>Predicted 1st Innings Score:</strong> {Math.round(content.predicted_score)}</p>
+               <p><strong>Predicted:</strong> {Math.round(content.predicted_score)}</p>
             )}
             {typeof content.confidence === 'number' && content.team1Name && content.team2Name ? (
               <PredictionGauge

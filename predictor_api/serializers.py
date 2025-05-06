@@ -161,3 +161,36 @@ class MatchSerializer(serializers.ModelSerializer):
             "winner",  # Must be listed to include nested object
             # ... other direct fields like 'result_margin' etc. ...
         ]
+
+
+# =============================================================================
+# Serializers for LLM Follow-up Query
+# =============================================================================
+class LLMMatchContextSerializer(serializers.Serializer):
+    """Serializer for the match_context object."""
+
+    team1 = serializers.CharField(max_length=100)
+    team2 = serializers.CharField(max_length=100)
+    venue = serializers.CharField(max_length=200)
+    city = serializers.CharField(max_length=100)
+    toss_winner = serializers.CharField(max_length=100)
+    toss_decision = serializers.ChoiceField(choices=["bat", "field"])
+    match_date = serializers.DateField()  # Expects 'YYYY-MM-DD'
+
+
+class LLMQueryInputSerializer(serializers.Serializer):
+    """Validates the input for the LLM follow-up query endpoint."""
+
+    user_question = serializers.CharField()
+    match_context = LLMMatchContextSerializer()
+    original_explanation = serializers.CharField()
+    predicted_winner = serializers.CharField(
+        max_length=100, required=False, allow_null=True
+    )
+    # predicted_score = serializers.FloatField(required=False, allow_null=True) # If you add scores
+
+
+class LLMQueryOutputSerializer(serializers.Serializer):
+    """Formats the output (LLM's answer) for the follow-up query."""
+
+    answer = serializers.CharField()

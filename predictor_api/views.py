@@ -21,9 +21,11 @@ from .serializers import (
     MatchSerializer,
     PlayerSerializer,
     MatchInputSerializer,
-    PredictionOutputSerializer,  # Used by existing PredictionView (winner)
+    PredictionOutputSerializer,
     PlayerMatchPerformanceSerializer,
-    ScorePredictionOutputSerializer,  # Import the new serializer for score output
+    ScorePredictionOutputSerializer,
+    LLMQueryInputSerializer,
+    LLMQueryOutputSerializer,
 )
 
 # --- Add src directory to Python path ---
@@ -31,7 +33,6 @@ SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 # --- End Path Handling ---
 
 # --- Import predictor functions and load models/encoder ---
-# Initialize flags and placeholders
 PREDICTOR_AVAILABLE = False
 SCORE_PREDICTOR_AVAILABLE = False
 predict_winner = None
@@ -47,6 +48,21 @@ async def _dummy_winner_predictor(
         "confidence": None,
         "explanation": "Predictor Unavailable",
     }
+
+
+# --- Ensure LLM handler is imported (adjust path if needed) ---
+try:
+    from ipl_predictor.llm_handler import query_ollama_llm
+
+    LLM_HANDLER_AVAILABLE = True
+except ImportError:
+    print(
+        "ERROR (Django View): Failed to import 'query_ollama_llm' from 'ipl_predictor.llm_handler'. LLM query endpoint unavailable."
+    )
+    LLM_HANDLER_AVAILABLE = False
+
+    def query_ollama_llm(prompt_text: str) -> str:
+        return "LLM Handler not available."
 
 
 async def _dummy_score_predictor(*args, **kwargs) -> Dict[str, Optional[float]]:
@@ -281,7 +297,7 @@ class PredictionView(APIView):  # Keeping original name as requested
 
 
 # =============================================================================
-# API View for Score Predictions (NEW)
+# API View for Score Predictions
 # =============================================================================
 class ScorePredictionView(APIView):
     """Handles requests to predict first innings score."""
@@ -367,3 +383,94 @@ class ScorePredictionView(APIView):
             f"Score prediction successful. Returning response: {output_serializer.data}"
         )
         return Response(output_serializer.data, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# API View for LLM Follow-up Queries
+# =============================================================================
+class LLMQueryView(APIView):
+    """
+    Handles follow-up questions about previous predictions using the LLM.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]  # Apply token authentication
+
+    @extend_schema(
+        summary="Ask Follow-up Question about a Prediction",
+        description="Sends a user's follow-up question and original prediction context to the LLM for a detailed answer.",
+        request=LLMQueryInputSerializer,
+        responses={
+            200: LLMQueryOutputSerializer,
+            400: {"description": "Bad Request: Input validation failed."},
+            503: {
+                "description": "Service Unavailable: LLM service could not be reached or failed."
+            },
+        },
+        tags=["LLM Interaction"],
+    )
+    def post(self, request, *args, **kwargs):
+        if not LLM_HANDLER_AVAILABLE:
+            return Response(
+                {"error": "LLM query service is currently unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        serializer = LLMQueryInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_data = serializer.validated_data
+        user_question = validated_data["user_question"]
+        match_context = validated_data["match_context"]
+        original_explanation = validated_data["original_explanation"]
+        predicted_winner = validated_data.get("predicted_winner")  # Optional
+
+        # Construct the prompt for Ollama
+        prompt_parts = [
+            f"Regarding the IPL match prediction for {match_context['team1']} vs {match_context['team2']} "
+            f"at {match_context['venue']} ({match_context['city']}) on {match_context['match_date']}:"
+        ]
+        if predicted_winner:
+            prompt_parts.append(f"- The predicted winner was: {predicted_winner}.")
+        prompt_parts.append(
+            f"- The initial reasoning provided was: '{original_explanation}'."
+        )
+        prompt_parts.append(
+            f"\nPlease answer the following user question based ONLY on this context and general cricket"
+            f" knowledge relevant to the context provided: '{user_question}'"
+        )
+        prompt_parts.append(
+            "\nProvide a direct answer. Do not start with phrases like 'Based on the context...' or 'The user's question is...'."
+        )
+
+        prompt_text = "\n".join(prompt_parts)
+        print(f"Constructed prompt for LLM Query: {prompt_text}")  # For debugging
+
+        # Call the Ollama LLM (ensure query_ollama_llm handles errors and returns string)
+        # This part might need to be async if query_ollama_llm is async, using async_to_sync
+        # For simplicity, assuming query_ollama_llm is synchronous here.
+        # If it's async: llm_answer = async_to_sync(query_ollama_llm)(prompt_text=prompt_text)
+        llm_answer = query_ollama_llm(prompt_text=prompt_text)
+
+        if llm_answer.startswith(
+            "Error:"
+        ):  # Check if the helper returned an error message
+            return Response(
+                {"error": llm_answer}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        output_data = {"answer": llm_answer}
+        output_serializer = LLMQueryOutputSerializer(
+            data=output_data
+        )  # Pass as data= for validation
+        if output_serializer.is_valid():  # Good to validate own output structure
+            return Response(output_serializer.validated_data, status=status.HTTP_200_OK)
+        else:
+            # This should ideally not happen if llm_answer is a string
+            print(
+                f"ERROR: Failed to serialize LLM query output: {output_serializer.errors}"
+            )
+            return Response(
+                {"error": "Failed to format LLM response."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

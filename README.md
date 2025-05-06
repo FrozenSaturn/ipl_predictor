@@ -77,7 +77,7 @@ This system addresses the technical assessment requirements by delivering a func
     * `ChatTextInput.jsx`: Free-text input for chat commands.
     * `PredictionGauge.jsx`: Custom animated gauge for visualizing win probability.
     * Player performance charts (runs, strike rate, wickets, economy) using `Chart.js`, displayed within the chat or a dedicated panel.
-* **Chatbot Commands:** `/help`, `/explain last`, `/performance <Player Name or ID>`, `/history <Team 1> vs <Team 2>`, and contextual follow-up questions to the LLM after a prediction.
+* **Chatbot Commands:** `help`, `explain last`, `performance <Player Name or ID>`, `history <Team 1> vs <Team 2>`, and contextual follow-up questions to the LLM after a prediction.
 
 ## 4. System Architecture
 

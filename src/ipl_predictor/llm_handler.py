@@ -1,4 +1,3 @@
-# Example: src/ipl_predictor/llm_handler.py
 import requests
 import json
 import os
